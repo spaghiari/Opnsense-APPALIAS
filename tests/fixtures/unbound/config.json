@@ -1,0 +1,91 @@
+{
+  "general": {
+    "enabled": true,
+    "listen_address": "127.0.0.1",
+    "listen_port": 53535,
+    "upstream_address": "192.0.2.53",
+    "upstream_port": 53,
+    "unbound_autoforward": true
+  },
+  "apps": [
+    {
+      "uuid": "u1",
+      "name": "TWITCH",
+      "enabled": true,
+      "domains": [
+        "twitch.tv",
+        "domain:www.twitch.tv",
+        "full:api.twitch.tv",
+        "keyword:twitch",
+        "regexp:^video[0-9]+[.]ttvnw[.]net$",
+        "ttvnw.net"
+      ]
+    },
+    {
+      "uuid": "u2",
+      "name": "VIDEO",
+      "enabled": true,
+      "domains": [
+        "dot.example",
+        "sub.dot.example",
+        "fwd.example",
+        "parent.example",
+        "cloudfront.net",
+        "d1.cloudfront.net",
+        "full:com",
+        "printer.home.arpa",
+        "nas.stratos.lan",
+        "router.example.org",
+        "TWITCH.TV.",
+        "full:cloudfront.net",
+        "full:amazonaws.com",
+        "full:edge.cloudfront.net"
+      ]
+    },
+    {
+      "uuid": "u3",
+      "name": "OFF",
+      "enabled": false,
+      "domains": [
+        "disabled.example"
+      ]
+    }
+  ],
+  "unbound": {
+    "enabled": true,
+    "port": 53,
+    "dots": [
+      {
+        "domain": "",
+        "type": "dot",
+        "enabled": true
+      },
+      {
+        "domain": "dot.example",
+        "type": "dot",
+        "enabled": true
+      },
+      {
+        "domain": "fwd.example.",
+        "type": "forward",
+        "enabled": false
+      },
+      {
+        "domain": "child.parent.example",
+        "type": "forward",
+        "enabled": true
+      }
+    ],
+    "local_domains": [
+      "stratos.lan",
+      "router.example.org"
+    ],
+    "local_addresses": [
+      "192.168.1.1",
+      "10.10.10.1",
+      "2001:db8::1",
+      "fe80::1%igb0",
+      "127.0.0.1"
+    ]
+  }
+}

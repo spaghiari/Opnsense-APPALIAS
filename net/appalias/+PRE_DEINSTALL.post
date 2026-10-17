@@ -1,0 +1,5 @@
+# os-appalias : retirer le fichier des zones de transfert d'Unbound vers le
+# relais. Les zones restent actives jusqu'au prochain démarrage d'Unbound ;
+# relais absent, forward-first les fait passer en récursion directe (port 53,
+# hors DNS over TLS). Pas de modification à chaud.
+rm -f /usr/local/etc/unbound.opnsense.d/appalias.conf /var/unbound/etc/appalias.conf

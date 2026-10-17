@@ -46,6 +46,15 @@ class AppAlias extends BaseModel
     /** Longueur maximale d'un nom de table pf. */
     const MAX_TABLE_LENGTH = 31;
 
+    /** Plateformes partagées : source unique, lue aussi par le relais Python. */
+    const SHARED_PLATFORMS_FILE = '/usr/local/opnsense/scripts/OPNsense/AppAlias/data/shared_platforms.txt';
+
+    /** Référence de liste du catalogue v2fly (« netflix@-ads »). */
+    const CATALOG_REF_PATTERN = '/^[a-z0-9-]+(@-?[a-z0-9-]+)*$/';
+
+    /** Contenu de SHARED_PLATFORMS_FILE, lu une fois par requête. */
+    private static $sharedPlatformsFile = null;
+
     /**
      * Noms des alias Firewall existants, avec un indicateur « géré ».
      * @return array nom => bool
@@ -140,6 +149,86 @@ class AppAlias extends BaseModel
     }
 
     /**
+     * Nom d'hôte normalisé : minuscules, point final et « *. » de tête retirés.
+     */
+    public static function normalizeHost($name)
+    {
+        $name = rtrim(strtolower(trim((string)$name)), '.');
+        if (substr($name, 0, 2) === '*.') {
+            $name = substr($name, 2);
+        }
+        return $name;
+    }
+
+    /**
+     * Plateformes partagées du fichier data/shared_platforms.txt.
+     * @return array liste de noms
+     */
+    public static function sharedPlatformsFromFile()
+    {
+        if (self::$sharedPlatformsFile === null) {
+            $names = [];
+            $text = @file_get_contents(self::SHARED_PLATFORMS_FILE);
+            if ($text !== false) {
+                foreach (preg_split('/\R/', $text) as $line) {
+                    $line = self::normalizeHost(explode('#', $line, 2)[0]);
+                    if ($line !== '') {
+                        $names[$line] = true;
+                    }
+                }
+            }
+            self::$sharedPlatformsFile = array_keys($names);
+        }
+        return self::$sharedPlatformsFile;
+    }
+
+    /**
+     * Plateformes partagées : fichier, plus le réglage shared_platforms_extra.
+     * @return array liste de noms
+     */
+    public function sharedPlatforms()
+    {
+        $names = array_fill_keys(self::sharedPlatformsFromFile(), true);
+        foreach (self::splitList($this->general->shared_platforms_extra) as $item) {
+            $item = self::normalizeHost($item);
+            if ($item !== '') {
+                $names[$item] = true;
+            }
+        }
+        return array_keys($names);
+    }
+
+    /**
+     * Refus d'une règle « domain: » (ou nom seul) trop large :
+     * « tld » pour un domaine de premier niveau seul, « shared » quand le nom
+     * est égal à une plateforme partagée ou parent de l'une d'elles, sinon null.
+     * « domain:d123.cloudfront.net » et « full:… » ne sont jamais refusés ici.
+     */
+    public static function sharedRefusal($rule, $platforms)
+    {
+        $rule = trim((string)$rule);
+        if (preg_match('/^([a-z]+):(.*)$/i', $rule, $m)) {
+            if (strtolower($m[1]) !== 'domain') {
+                return null;
+            }
+            $rule = $m[2];
+        }
+        $value = self::normalizeHost($rule);
+        if ($value === '') {
+            return null;
+        }
+        if (strpos($value, '.') === false) {
+            return 'tld';
+        }
+        foreach ($platforms as $platform) {
+            if ($platform === $value || str_ends_with($platform, '.' . $value)) {
+                return 'shared';
+            }
+        }
+        return null;
+    }
+
+    /**
      * Vrai si la règle de domaine est valide (domain:, full:, keyword:, regexp: ou nom seul).
      */
     private static function validDomainRule($rule)
@@ -155,7 +244,7 @@ class AppAlias extends BaseModel
                 return preg_match('/^[a-z0-9._-]+$/i', $value) === 1;
             }
             if ($kind === 'regexp') {
-                // accepté, ignoré par le démon dans cette version
+                // règle de découverte : conservée, jamais appliquée par le relais
                 return strpos($value, ',') === false;
             }
             return strlen($value) <= 253 && preg_match($host, $value) === 1;
@@ -190,7 +279,7 @@ class AppAlias extends BaseModel
             foreach (self::splitList($general->upstream_fallback) as $item) {
                 if (!self::validHostPort($item)) {
                     $messages->appendMessage(new Message(
-                        sprintf(gettext('Amont de secours invalide : %s (attendu ip:port ou [ipv6]:port).'), $item),
+                        sprintf(gettext('Invalid fallback upstream: %s (expected ip:port or [ipv6]:port).'), $item),
                         $general->upstream_fallback->__reference
                     ));
                 }
@@ -206,7 +295,7 @@ class AppAlias extends BaseModel
         ) {
             if ((string)$general->enabled === '1' && trim((string)$general->upstream_address) === '') {
                 $messages->appendMessage(new Message(
-                    gettext('Résolveur amont obligatoire quand le service est activé'),
+                    gettext('An upstream resolver is required when the service is enabled.'),
                     $general->upstream_address->__reference
                 ));
             }
@@ -217,6 +306,7 @@ class AppAlias extends BaseModel
         $aliases = null;
         $managedByUuid = null;
         $configText = null;
+        $platforms = null;
 
         foreach ($this->apps->app->iterateItems() as $app) {
             if (!$validateFullModel && !$prefixChanged && !$app->isFieldChanged()) {
@@ -229,7 +319,7 @@ class AppAlias extends BaseModel
             if (strlen($table) > self::MAX_TABLE_LENGTH) {
                 $messages->appendMessage(new Message(
                     sprintf(
-                        gettext('Le nom de l\'alias « %s » dépasse %d caractères (préfixe compris).'),
+                        gettext('The alias name "%s" exceeds %d characters (prefix included).'),
                         $table,
                         self::MAX_TABLE_LENGTH
                     ),
@@ -242,7 +332,7 @@ class AppAlias extends BaseModel
             $asns = self::splitList($app->asns);
             if (count($domains) + count($networks) + count($asns) == 0) {
                 $messages->appendMessage(new Message(
-                    gettext('Indiquer au moins une source : domaines, réseaux ou ASN.'),
+                    gettext('Enter at least one source: domains, networks or ASNs.'),
                     $key . '.domains'
                 ));
             }
@@ -250,8 +340,42 @@ class AppAlias extends BaseModel
             foreach ($domains as $rule) {
                 if (!self::validDomainRule($rule)) {
                     $messages->appendMessage(new Message(
-                        sprintf(gettext('Règle de domaine invalide : %s'), $rule),
+                        sprintf(gettext('Invalid domain rule: %s'), $rule),
                         $key . '.domains'
+                    ));
+                    continue;
+                }
+                if ($platforms === null) {
+                    $platforms = $this->sharedPlatforms();
+                }
+                $refusal = self::sharedRefusal($rule, $platforms);
+                if ($refusal === 'tld') {
+                    $messages->appendMessage(new Message(
+                        sprintf(
+                            gettext('Rule %s covers a whole top-level domain: use full: for an exact name.'),
+                            $rule
+                        ),
+                        $key . '.domains'
+                    ));
+                } elseif ($refusal === 'shared') {
+                    $messages->appendMessage(new Message(
+                        sprintf(
+                            gettext(
+                                'Rule %s covers a shared platform (CDN, cloud or hosting) used by many other ' .
+                                'services: use full: for an exact name, or a dedicated sub-domain.'
+                            ),
+                            $rule
+                        ),
+                        $key . '.domains'
+                    ));
+                }
+            }
+
+            foreach (self::splitList($app->catalog_refs) as $ref) {
+                if (strlen($ref) > 128 || preg_match(self::CATALOG_REF_PATTERN, $ref) !== 1) {
+                    $messages->appendMessage(new Message(
+                        sprintf(gettext('Invalid catalog reference: %s'), $ref),
+                        $key . '.catalog_refs'
                     ));
                 }
             }
@@ -259,7 +383,7 @@ class AppAlias extends BaseModel
             foreach ($asns as $asn) {
                 if (!preg_match('/^(AS)?[0-9]{1,10}$/i', $asn)) {
                     $messages->appendMessage(new Message(
-                        sprintf(gettext('ASN invalide : %s'), $asn),
+                        sprintf(gettext('Invalid ASN: %s'), $asn),
                         $key . '.asns'
                     ));
                 }
@@ -272,7 +396,7 @@ class AppAlias extends BaseModel
                 if (isset($aliases[$table]) && !$aliases[$table]) {
                     $messages->appendMessage(new Message(
                         sprintf(
-                            gettext('Un alias Firewall « %s » existe déjà et n\'est pas géré par os-appalias.'),
+                            gettext('A firewall alias "%s" already exists and is not managed by os-appalias.'),
                             $table
                         ),
                         $key . '.name'
@@ -299,8 +423,8 @@ class AppAlias extends BaseModel
                         $messages->appendMessage(new Message(
                             sprintf(
                                 gettext(
-                                    'Renommage impossible : l\'alias « %s » est encore utilisé (règles, NAT ou groupe). ' .
-                                    'Retirer d\'abord ces références, ou garder le nom et le préfixe actuels.'
+                                    'Cannot rename: the alias "%s" is still in use (rules, NAT or alias group). ' .
+                                    'Remove these references first, or keep the current name and prefix.'
                                 ),
                                 $oldName
                             ),

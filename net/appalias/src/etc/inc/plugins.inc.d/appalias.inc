@@ -49,7 +49,7 @@ function appalias_services()
 
     if (appalias_enabled()) {
         $services[] = [
-            'description' => gettext('AppAlias (relais DNS)'),
+            'description' => gettext('AppAlias (DNS relay)'),
             'configd' => [
                 'restart' => ['appalias restart'],
                 'start' => ['appalias start'],
@@ -64,19 +64,38 @@ function appalias_services()
 }
 
 /**
- * Événements : démarrage du système et événement « appalias ».
+ * Événements : démarrage du système, événement « appalias », et démarrage
+ * ou reconfiguration d'Unbound (« dns », « unbound_start » du core). Les
+ * plugins sont parcourus par ordre alphabétique (plugins_scan) : appalias
+ * régénère son fichier avant que unbound_configure_do() lance start.sh, qui
+ * le recopie. Jamais de redémarrage d'Unbound ici.
  */
 function appalias_configure()
 {
     return [
         'bootup' => ['appalias_configure_boot'],
         'appalias' => ['appalias_configure_do'],
+        'dns' => ['appalias_configure_unbound'],
+        'unbound_start' => ['appalias_configure_unbound'],
     ];
 }
 
 /**
- * Journal dédié : /var/log/appalias/appalias_<date>.log, affiché dans
- * Système > Journaux > Fichiers > AppAlias (/ui/diagnostics/log/core/appalias).
+ * Export de config.json puis écriture des zones de transfert d'Unbound
+ * (sans redémarrage : Unbound est en train de démarrer).
+ */
+function appalias_configure_unbound($verbose = false)
+{
+    mwexecf(APPALIAS_SCRIPTS . '/export_config.php');
+    mwexecf(APPALIAS_SCRIPTS . '/unbound_forward.py');
+}
+
+/**
+ * Application « appalias » proposée dans la liste des applications des
+ * destinations syslog distantes (Système > Journaux > Destinations distantes).
+ * Le fichier local /var/log/appalias/appalias_<date>.log ne vient pas d'ici :
+ * il vient du template OPNsense/Syslog/local/appalias.conf (filtre
+ * program("appalias")), affiché dans /ui/diagnostics/log/core/appalias.
  * Même forme que dnsmasq_syslog() et ntpd_syslog() du core 26.7 :
  * clé = nom du journal, 'facility' = liste d'identifiants syslog (ident).
  */
@@ -98,6 +117,7 @@ function appalias_syslog()
 function appalias_configure_boot($verbose = false)
 {
     mwexecf(APPALIAS_SCRIPTS . '/export_config.php');
+    mwexecf(APPALIAS_SCRIPTS . '/unbound_forward.py');
     if (appalias_enabled() && mwexecf('/usr/local/etc/rc.d/appaliasd onestatus', [], true) == 0) {
         mwexecf('/usr/local/etc/rc.d/appaliasd onereload');
     }
@@ -115,6 +135,7 @@ function appalias_configure_do($verbose = false)
     }
 
     mwexecf(APPALIAS_SCRIPTS . '/export_config.php');
+    mwexecf(APPALIAS_SCRIPTS . '/unbound_forward.py');
 
     if ($enabled) {
         mwexecf('/usr/local/etc/rc.d/appaliasd onerestart');

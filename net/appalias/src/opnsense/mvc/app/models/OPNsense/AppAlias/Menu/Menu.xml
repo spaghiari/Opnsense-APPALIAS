@@ -1,8 +1,8 @@
 <menu>
     <Services>
         <AppAlias VisibleName="AppAlias" cssClass="fa fa-tags fa-fw">
-            <Index VisibleName="Réglages" url="/ui/appalias/"/>
-            <Log VisibleName="Journal" url="/ui/diagnostics/log/core/appalias"/>
+            <Index VisibleName="Settings" url="/ui/appalias/"/>
+            <Log VisibleName="Log File" url="/ui/diagnostics/log/core/appalias"/>
         </AppAlias>
     </Services>
 </menu>

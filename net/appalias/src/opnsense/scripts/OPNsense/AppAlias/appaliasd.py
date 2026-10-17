@@ -55,6 +55,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from lib import config as cfgmod  # noqa: E402
 from lib import dnswire  # noqa: E402
+from lib import shared  # noqa: E402
 from lib.matcher import Matcher  # noqa: E402
 from lib.pftable import PfError, PfTable, normalize_entry  # noqa: E402
 from lib.state import State, compute_expiry  # noqa: E402
@@ -196,7 +197,8 @@ class Relay:
     def _apply_config(self, cfg):
         self.cfg = cfg
         self.apps = {a.table: a for a in cfg.apps}
-        self.matcher = Matcher({a.table: a.domains for a in cfg.apps if a.enabled})
+        self.matcher = Matcher({a.table: a.domains for a in cfg.apps if a.enabled},
+                               platforms=shared.load(extra=cfg.shared_platforms_extra))
 
     def _dns_entry_ok(self, app, ip):
         return app.family_ok(ip) and not self.cfg.excluded(ip) and not app.covered(ip)

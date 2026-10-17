@@ -20,7 +20,7 @@ Désinstallation : `sh tools/uninstall-copy.sh` (config.xml et
 - Tests unitaires (stdlib), depuis la racine du dépôt :
 
 ```sh
-python -I -B -m unittest discover -s tests
+python -I -B -m unittest discover -s tests   # ou python3 -B -m unittest discover -s tests
 ```
 
 - `tools/phase0.sh` : vérifications manuelles sur une box (survie d'un alias
@@ -106,6 +106,131 @@ git ls-remote https://github.com/opnsense/plugins refs/heads/stable/26.1 refs/he
   en commentaire). Dependabot propose les mises à jour ; elles sont relues et
   fusionnées à la main.
 
+## Catalogue v2fly (instantané embarqué)
+
+Le pare-feu ne télécharge jamais rien : le catalogue est un instantané de
+[v2fly/domain-list-community](https://github.com/v2fly/domain-list-community)
+embarqué dans le paquet, sous
+`net/appalias/src/opnsense/scripts/OPNsense/AppAlias/catalog/` :
+
+- `v2fly.lst` : une section `[liste]` par liste, lignes triées, commentaires
+  retirés, `include:` conservés ;
+- `v2fly.manifest.json` : commit, date, sha256 de l'archive et du `.lst`,
+  règles d'exclusion, compteurs (le plugin refuse un `.lst` dont le sha256
+  diffère du manifeste) ;
+- `LICENSE.v2fly` : notice de copyright et licence MIT de l'archive.
+
+Listes exclues : `category-*`, `geolocation-*`, `tld-*`, `cn`, `private`, et
+tout nom contenant `!` (ou hors `[a-z0-9-]`).
+
+Instantané actuel :
+
+- commit : `4b6e9f1e16c0905e8c1f1b22f7669ceb9507da8b` (2026-10-17)
+- sha256 de l'archive `archive/<commit>.tar.gz` :
+  `b609b818a195352b4d79eff4b8761b4ea1cc61079df7283e7a3e43cfcd618c35`
+- `v2fly.lst` : 414439 octets, 1416 listes conservées, 129 exclues.
+
+### Rafraîchir le catalogue
+
+`tools/v2fly-snapshot.py` (stdlib, non livré dans le paquet) télécharge
+l'archive du commit, vérifie son sha256, l'extrait avec
+`tarfile` `filter="data"` (seuls `data/*` et `LICENSE`, fichiers réguliers,
+tailles plafonnées) et écrit les trois fichiers. L'archive est une donnée non
+fiable : la placer dans un dossier vide, lancer Python avec `-I`, ne rien
+exécuter qui en vienne.
+
+1. Choisir le commit (40 caractères) :
+   `git ls-remote https://github.com/v2fly/domain-list-community refs/heads/master`.
+2. Premier téléchargement de ce commit (empreinte calculée et affichée) :
+
+```sh
+mkdir /tmp/v2fly-new   # dossier vide, hors du dépôt
+python3 -I tools/v2fly-snapshot.py --commit <sha1> --fetch --tofu \
+    --archive /tmp/v2fly-new/v2fly.tar.gz \
+    --out net/appalias/src/opnsense/scripts/OPNsense/AppAlias/catalog
+```
+
+3. Recopier ici le commit, la date et l'empreinte affichée (`archive_sha256`),
+   puis vérifier l'empreinte une seconde fois depuis l'archive locale :
+
+```sh
+python3 -I tools/v2fly-snapshot.py --commit <sha1> --sha256 <archive_sha256> \
+    --archive /tmp/v2fly-new/v2fly.tar.gz \
+    --out net/appalias/src/opnsense/scripts/OPNsense/AppAlias/catalog
+```
+
+4. Contrôler la taille signalée (plafond ~1,5 Mo, le script échoue au-delà
+   sauf `--max-bytes`), relire le diff de `v2fly.lst` (listes ajoutées ou
+   retirées), lancer les tests, puis commiter via une PR. Après la mise à
+   jour du plugin, chaque application importée affiche ses « catalog
+   updates » à valider dans sa modale de diff.
+
+## Tests manuels côté PHP
+
+`php` n'est pas exécuté par la CI : à vérifier sur une box de test après
+installation (`tools/install-copy.sh`) :
+
+1. Config 0.2 existante : la page *Services > AppAlias* se charge, la
+   migration du modèle (0.1.0 -> 0.2.0) passe sans erreur, l'enregistrement
+   des réglages ne produit aucune erreur de validation.
+2. Application avec `domain:cloudfront.net`, `net` ou `*.amazonaws.com` :
+   refusée (message « use full: ») ; `domain:d123.cloudfront.net` et
+   `full:cloudfront.net` acceptés. Idem avec un nom ajouté dans *Extra
+   shared platforms*.
+3. Onglet *Catalog* : recherche `netflix` puis `nflxvideo.net` (même liste),
+   recherche avec espace ou `../` refusée.
+4. Aperçu `google` : règles groupées par type, `@ads` décochées, CDN partagés
+   décochés avec l'icône, `keyword:`/`regexp:` grisées, compteur et
+   avertissement au-delà de 300 règles, import bloqué au-delà de 1000.
+5. Import « nouvelle application » (nom proposé `NETFLIX`) puis « fusion »
+   dans une application existante : `domains`, `catalog_refs`,
+   `catalog_rules`, `catalog_revision` et `origin=v2fly` enregistrés ; rien
+   n'est appliqué avant « Apply ».
+6. `POST /api/appalias/catalog/import` avec une règle absente de la liste :
+   refus côté serveur.
+7. Retirer une règle de `catalog_rules` à la main (ou importer avec des
+   règles décochées) : la grille affiche « N catalog updates », la modale de
+   diff ajoute ou retire les règles cochées.
+8. `configctl appalias export` : `config.json` contient `catalog_refs` et
+   `shared_platforms_extra` ; le relais journalise une seule ligne pour les
+   règles refusées et, en debug, une seule ligne pour les règles de
+   découverte.
+9. Journal dédié : rien à déclencher à la main. plugins.mk ajoute à
+   +POST_INSTALL un `configctl template reload` par dossier de template (dont
+   `OPNsense/Syslog`), et `rc.configure_plugins POST_INSTALL` appelle
+   `system_syslog_start(true)`. Vérifier seulement, après installation ou mise
+   à jour, que `/var/log/appalias/` reçoit les messages du démon.
+10. Branchement d'Unbound (opt-in) : cocher l'option, DNS over TLS « . »
+    actif, puis Apply. Vérifier :
+    - `/usr/local/etc/unbound.opnsense.d/appalias.conf` et sa copie
+      `/var/unbound/etc/appalias.conf` (zones avec `forward-first: yes`) ;
+    - Unbound redémarré une fois (journal), puis plus du tout sur un second
+      Apply sans changement de domaines ;
+    - `unbound-control -c /var/unbound/unbound.conf list_forwards` montre les
+      zones vers `127.0.0.1@53535` ; résoudre un domaine d'application
+      remplit l'alias ; relais arrêté, le domaine se résout encore (sans
+      remplir l'alias) ;
+    - ajouter un Query Forwarding pour un de ces domaines : au démarrage
+      d'Unbound (événement `unbound_start`), le fichier est régénéré sans ce
+      domaine ; la raison s'affiche dans *Settings* après Apply ;
+    - amont du relais réglé sur une IP d'interface ou une VIP, port 53 :
+      aucune zone, erreur « loop » affichée ;
+    - décocher l'option puis Apply : fichiers supprimés, Unbound redémarré ;
+    - bouton *Restart Unbound* : confirmation demandée, résultat affiché ;
+    - désinstallation : `+PRE_DEINSTALL.post` supprime les fichiers ;
+    - avec un transfert « . » actif (DoT ou Forward), l'encadré affiche
+      l'avertissement de repli : relais arrêté, ces domaines passent en
+      récursion directe (port 53 en clair, hors DNS over TLS), SERVFAIL si le
+      port 53 sortant est bloqué ;
+    - redémarrage en échec (Unbound arrêté à la main par exemple) : le
+      prochain Apply relance le redémarrage même sans changement
+      (`restart_pending` dans `/var/db/appalias/unbound.json`).
+
+    Limite : le bouton Restart de *Services > Unbound DNS* (et le widget des
+    services) n'appelle pas `plugins_configure` ; Unbound recharge alors le
+    fichier tel qu'écrit au dernier Apply d'AppAlias (ou au dernier événement
+    `dns` / `unbound_start`).
+
 ## Rotation de clé
 
 1. Générer la nouvelle paire **hors du dépôt** (par exemple `~/.appalias/`) :
@@ -157,5 +282,5 @@ git ls-remote https://github.com/opnsense/plugins refs/heads/stable/26.1 refs/he
 - **Code de sortie 78** : configuration invalide ou absente du démon (amont
   manquant, « any », port hors plage). Le démon journalise l'erreur dans
   syslog et `daemon(8)` le relance toutes les 10 s : corriger la
-  configuration puis cliquer sur « Appliquer ». Au rechargement (SIGHUP), une
+  configuration puis cliquer sur « Apply ». Au rechargement (SIGHUP), une
   configuration invalide est refusée et l'ancienne reste active.

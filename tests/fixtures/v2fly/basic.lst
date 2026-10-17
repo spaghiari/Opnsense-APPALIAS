@@ -1,0 +1,28 @@
+# Jeu de test de lib/v2fly.py (format v2fly.lst).
+stray.example.com
+[Netflix]
+netflix.com
+domain:NFLXVIDEO.net.
+full:api.netflix.com @ads
+nflxext.com   @ads   # commentaire
+netflix.com
+keyword:Netflix
+regexp:^nflx[0-9]+\.example$
+include:netflix-extra
+include:absent-list
+garbage:foo
+domain:exämple.com
+domain:bad..name
+include:netflix-extra @
+
+[netflix-extra]
+extra.example @cn
+extra2.example @ads @cn
+full:extra.example.net
+[filtered]
+include:netflix-extra @cn
+include:netflix-extra @-ads
+[onlyads]
+include:netflix @ads
+[bad name!?]
+ignored.example

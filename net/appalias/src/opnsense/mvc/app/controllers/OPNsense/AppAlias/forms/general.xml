@@ -1,87 +1,102 @@
 <form>
     <field>
         <id>appalias.general.enabled</id>
-        <label>Activer</label>
+        <label>Enable</label>
         <type>checkbox</type>
-        <help>Démarre le relais DNS appaliasd et la synchronisation des alias APP_*.</help>
+        <help>Starts the appaliasd DNS relay and the synchronization of the APP_* aliases.</help>
     </field>
     <field>
         <id>appalias.general.listen_address</id>
-        <label>Adresse d'écoute</label>
+        <label>Listen address</label>
         <type>text</type>
-        <help>Adresse locale du relais. Par défaut 127.0.0.1 : seul le résolveur local (Unbound ou Dnsmasq) l'interroge.</help>
+        <help>Local address of the relay. Default 127.0.0.1: only the local resolver (Unbound or Dnsmasq) queries it.</help>
     </field>
     <field>
         <id>appalias.general.listen_port</id>
-        <label>Port d'écoute</label>
+        <label>Listen port</label>
         <type>text</type>
-        <help>Port UDP et TCP du relais (53535 par défaut).</help>
+        <help>UDP and TCP port of the relay (default 53535).</help>
     </field>
     <field>
         <id>appalias.general.upstream_address</id>
-        <label>Résolveur amont</label>
+        <label>Upstream resolver</label>
         <type>text</type>
-        <help>Adresse IP du résolveur auquel le relais transmet chaque requête telle quelle. Obligatoire quand le service est activé.</help>
+        <help>IP address of the resolver the relay forwards every query to, unchanged. Required when the service is enabled.</help>
     </field>
     <field>
         <id>appalias.general.upstream_port</id>
-        <label>Port amont</label>
+        <label>Upstream port</label>
         <type>text</type>
     </field>
     <field>
         <id>appalias.general.upstream_fallback</id>
-        <label>Amonts de secours</label>
+        <label>Fallback upstreams</label>
         <type>select_multiple</type>
         <style>tokenize</style>
         <allownew>true</allownew>
-        <help>Liste ip:port (ou [ipv6]:port) essayée dans l'ordre si l'amont principal ne répond pas.</help>
+        <help>List of ip:port (or [ipv6]:port) tried in order when the main upstream does not answer.</help>
+    </field>
+    <field>
+        <id>appalias.general.unbound_autoforward</id>
+        <label>Forward application domains from Unbound</label>
+        <type>checkbox</type>
+        <help>Unbound sends only the domains of the enabled applications to the relay, one forward zone per domain (file /usr/local/etc/unbound.opnsense.d/appalias.conf). Other queries keep their usual path (DNS over TLS, Query Forwarding). Names already configured in Unbound (Query Forwarding, DNS over TLS, domain overrides) and local names are skipped. Applying restarts Unbound when the list of forwarded domains changes. Each zone uses forward-first: while the relay is down, Unbound falls back to direct recursion to the authoritative servers for these domains (plain DNS on UDP/TCP port 53), bypassing DNS over TLS and the "." Query Forwarding; their addresses are not added to the aliases. If outgoing port 53 is blocked, these domains fail (SERVFAIL) until the relay is back. After adding a Query Forwarding entry for a domain also used by AppAlias, press Apply in AppAlias. Leave unchecked to set up the forwarding by hand.</help>
     </field>
     <field>
         <id>appalias.general.follow_cname</id>
-        <label>Suivre les CNAME</label>
+        <label>Follow CNAMEs</label>
         <type>checkbox</type>
-        <help>Les noms de la chaîne CNAME d'une réponse comptent aussi pour la correspondance.</help>
+        <help>Names of the CNAME chain of an answer are matched too.</help>
     </field>
     <field>
         <id>appalias.general.ttl_min</id>
-        <label>TTL minimal (s)</label>
+        <label>Minimum TTL (s)</label>
         <type>text</type>
         <advanced>true</advanced>
-        <help>Une IP reste au moins ce temps dans la table, même si le TTL DNS est plus court.</help>
+        <help>An address stays at least this long in the table, even if the DNS TTL is shorter.</help>
     </field>
     <field>
         <id>appalias.general.ttl_margin</id>
-        <label>Marge de TTL (s)</label>
+        <label>TTL margin (s)</label>
         <type>text</type>
         <advanced>true</advanced>
-        <help>Durée ajoutée à l'expiration de chaque IP (couvre le cache des clients). Expiration = maintenant + max(TTL, TTL minimal) + marge.</help>
+        <help>Time added to the expiry of each address (covers client caches). Expiry = now + max(TTL, minimum TTL) + margin.</help>
     </field>
     <field>
         <id>appalias.general.max_entries_per_app</id>
-        <label>Entrées max. par application</label>
+        <label>Max. entries per application</label>
         <type>text</type>
         <advanced>true</advanced>
-        <help>Au-delà, plus aucune IP n'est ajoutée et un message est journalisé.</help>
+        <help>Beyond this, no address is added any more and a message is logged.</help>
     </field>
     <field>
         <id>appalias.general.exclude_networks</id>
-        <label>Réseaux exclus</label>
+        <label>Excluded networks</label>
         <type>select_multiple</type>
         <style>tokenize</style>
         <allownew>true</allownew>
         <advanced>true</advanced>
-        <help>Les IP résolues dans ces réseaux ne sont jamais ajoutées (adresses privées, locales, etc.).</help>
+        <help>Resolved addresses in these networks are never added (private, local addresses, etc.).</help>
+    </field>
+    <field>
+        <id>appalias.general.shared_platforms_extra</id>
+        <label>Extra shared platforms</label>
+        <type>select_multiple</type>
+        <style>tokenize</style>
+        <allownew>true</allownew>
+        <advanced>true</advanced>
+        <help>Names added to the built-in list of shared platforms (CDN, cloud, hosting). A "domain:" rule equal to one of them, or a parent of one, is refused.</help>
     </field>
     <field>
         <id>appalias.general.alias_prefix</id>
-        <label>Préfixe des alias</label>
+        <label>Alias prefix</label>
         <type>text</type>
         <advanced>true</advanced>
-        <help>Nom de l'alias = préfixe + nom de l'application (31 caractères au plus).</help>
+        <help>Alias name = prefix + application name (31 characters at most).</help>
     </field>
     <field>
         <id>appalias.general.loglevel</id>
-        <label>Niveau de journal</label>
+        <label>Log level</label>
         <type>dropdown</type>
     </field>
 </form>

@@ -33,10 +33,14 @@ comme dans le modèle MVC) :
               "upstream_fallback": ["ip:port", ...], "follow_cname": true,
               "ttl_min": 300, "ttl_margin": 3600, "max_entries_per_app": 20000,
               "exclude_networks": ["cidr", ...], "alias_prefix": "APP_",
-              "loglevel": "info"},
+              "loglevel": "info", "shared_platforms_extra": ["name", ...],
+              "unbound_autoforward": false},
   "apps": [{"uuid": "...", "enabled": true, "name": "X", "description": "...",
             "origin": "manual", "domains": [...], "asns": [...],
-            "networks": [...], "families": "both"}]
+            "networks": [...], "families": "both", "catalog_refs": [...]}],
+  "unbound": {"enabled": true, "port": 53, "local_addresses": ["ip", ...],
+              "dots": [{"domain": "...", "type": "dot|forward", "enabled": true}],
+              "local_domains": ["...", ...]}
 }
 """
 
@@ -162,6 +166,7 @@ class App:
     asns: list = field(default_factory=list)
     networks: list = field(default_factory=list)
     families: str = "both"
+    catalog_refs: list = field(default_factory=list)
 
     def family_ok(self, ip):
         if self.families == "inet":
@@ -189,6 +194,9 @@ class Config:
     alias_prefix: str
     loglevel: str
     apps: list
+    shared_platforms_extra: list = field(default_factory=list)
+    unbound_autoforward: bool = False
+    unbound: dict = field(default_factory=dict)
 
     def excluded(self, ip):
         return any(ip.version == n.version and ip in n for n in self.exclude_networks)
@@ -267,6 +275,7 @@ def from_dict(data):
             asns=as_list(raw.get("asns")),
             networks=parse_networks(raw.get("networks"), table),
             families=families,
+            catalog_refs=as_list(raw.get("catalog_refs")),
         ))
 
     return Config(
@@ -282,6 +291,9 @@ def from_dict(data):
         alias_prefix=prefix,
         loglevel=loglevel,
         apps=apps,
+        shared_platforms_extra=as_list(gen.get("shared_platforms_extra")),
+        unbound_autoforward=as_bool(gen.get("unbound_autoforward"), False),
+        unbound=data.get("unbound") if isinstance(data.get("unbound"), dict) else {},
     )
 
 

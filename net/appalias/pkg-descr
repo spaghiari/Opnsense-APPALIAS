@@ -1,42 +1,71 @@
-os-appalias crée un alias pare-feu External par application (APP_<NOM>)
-et le remplit automatiquement : un relais DNS local (appaliasd) ajoute à
-l'alias les adresses A/AAAA des domaines de l'application, au moment où
-elles sont résolues, et des réseaux CIDR peuvent être saisis à la main.
-Le plugin ne crée aucune règle : les alias servent dans vos propres règles
-(blocage, autorisation, routage par passerelle).
-
 os-appalias creates one External firewall alias per application
 (APP_<NAME>) and fills it automatically: a local DNS relay (appaliasd)
 adds the A/AAAA addresses of the application's domains as they are
 resolved, and CIDR networks can be added by hand. The plugin creates no
 rules: use the aliases in your own block, pass or policy routing rules.
 
+Applications can be imported from an embedded snapshot of
+v2fly/domain-list-community (no download on the firewall).
+
 License: BSD-2-Clause
+
+The embedded v2fly/domain-list-community lists are distributed under the
+MIT License; the copyright notice and the license text are installed in
+/usr/local/opnsense/scripts/OPNsense/AppAlias/catalog/LICENSE.v2fly.
 
 WWW: https://github.com/spaghiari/Opnsense-APPALIAS
 
 Plugin Changelog
 ================
 
+0.3
+
+* Catalog tab: search, preview and import of the lists of an embedded
+  snapshot of v2fly/domain-list-community (pinned commit, sha256 checked,
+  category-*, geolocation-*, tld-*, cn, private and "!" lists excluded).
+  Rules tagged @ads and rules on shared platforms are unchecked by default.
+  Nothing is applied before "Apply".
+* Catalog updates: imported applications keep their catalog references and
+  show the rules added to or removed from the catalog, to review and accept.
+* Shared platform guard (CDN, cloud, hosting): a domain: rule on a whole
+  shared platform, on one of its parents or on a top-level domain alone is
+  refused by the model and by the relay; extra names can be configured.
+* keyword: and regexp: are discovery rules: kept, never applied by the
+  relay, with a single debug log line instead of a warning on each reload.
+* Automatic Unbound forwarding (opt-in): one forward zone per application
+  domain to the relay, with forward-first, in
+  /usr/local/etc/unbound.opnsense.d/appalias.conf. While the relay is down,
+  these domains fall back to direct recursion (plain DNS, port 53),
+  bypassing DNS over TLS and the "." Query Forwarding; with outgoing port 53
+  blocked they fail until the relay is back. Apply restarts Unbound
+  only when the list of forwarded domains changes. Names already configured
+  in Unbound (Query Forwarding, DNS over TLS, domain overrides), their
+  sub-domains, local names and children of a forwarded parent are skipped
+  and listed in Settings; no zone is written when the relay upstream is the
+  firewall itself (loop). Other queries keep their path (DNS over TLS).
+* Model 0.2.0: hidden catalog fields per application, Origin field removed
+  from the application dialog.
+* Source texts in English (translations are handled by the OPNsense
+  translation project).
+
 0.2
 
-* Correctif de migration à l'installation : upstream_address n'est plus
-  obligatoire dans le modèle (contrôle déplacé dans la validation, requis
-  seulement quand le service est activé).
-* Nouvelle page Journal (Services > AppAlias > Journal).
-* Reconfiguration : le résultat de chaque appel configd est vérifié
-  (template, export, synchronisation, démarrage, rechargement).
-* Statut : ajout des libellés du widget (Restart, Start, Stop).
-* Synchronisation des alias et recréation des alias manquants sous verrou
-  de config.xml.
-* Démarrage du système : plus de double démarrage du démon, l'événement
-  bootup exporte la configuration et recharge le démon s'il tourne déjà.
-* Infobulle d'erreur de la grille échappée (construction jQuery) ; la
-  grille n'est plus rechargée en double au chargement de la page.
-* Suppression de sessionClose() dans ServiceController (inutile avec le
-  noyau 26.7, la session est libérée à la construction).
-* Aide du champ upstream_address : « Obligatoire quand le service est activé ».
+* Install migration fix: upstream_address is no longer required by the
+  model (check moved to the validation, required only when the service is
+  enabled).
+* New Log page (Services > AppAlias > Log File).
+* Reconfigure: the result of each configd call is checked (template,
+  export, synchronization, start, reload).
+* Status: widget captions (Restart, Start, Stop).
+* Alias synchronization and re-creation of missing aliases under the
+  config.xml lock.
+* System boot: no more double start of the daemon, the bootup event exports
+  the configuration and reloads the daemon if it is already running.
+* Grid error tooltip escaped (jQuery construction); the grid is no longer
+  reloaded twice when the page loads.
+* sessionClose() removed from ServiceController (not needed with the 26.7
+  core, the session is released at construction).
 
 0.1
 
-* Première version (MVP) : relais DNS, règles domain:/full:, CIDR manuels.
+* First version (MVP): DNS relay, domain:/full: rules, manual CIDRs.

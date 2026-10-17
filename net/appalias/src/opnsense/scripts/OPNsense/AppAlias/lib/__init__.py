@@ -29,7 +29,10 @@ Modules :
 - matcher : correspondance des noms avec les règles des applications ;
 - pftable : appels à pfctl sans shell ;
 - state   : IP résolues, expirations, sauvegarde atomique ;
-- config  : lecture de config.json produit par export_config.php.
+- config  : lecture de config.json produit par export_config.php ;
+- shared  : garde-fou des plateformes partagées (data/shared_platforms.txt) ;
+- v2fly   : analyseur du catalogue v2fly embarqué (catalog/v2fly.lst) ;
+- unboundfwd : zones de transfert Unbound vers le relais (dédoublonnage).
 
 Stdlib uniquement.
 """

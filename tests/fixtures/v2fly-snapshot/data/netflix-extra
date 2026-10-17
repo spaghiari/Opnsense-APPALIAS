@@ -1,0 +1,3 @@
+extra.example @cn
+domaine-é.example
+regexp:^x[0-9]+\.example$

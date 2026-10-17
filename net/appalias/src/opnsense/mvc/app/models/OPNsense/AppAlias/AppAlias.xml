@@ -1,7 +1,7 @@
 <model>
     <mount>//OPNsense/appalias</mount>
-    <version>0.1.0</version>
-    <description>AppAlias : un alias pf External par application, rempli par le relais DNS appaliasd</description>
+    <version>0.2.0</version>
+    <description>AppAlias: one External pf alias per application, filled by the appaliasd DNS relay</description>
     <items>
         <general>
             <enabled type="BooleanField">
@@ -13,7 +13,7 @@
                 <Default>127.0.0.1</Default>
                 <Required>Y</Required>
                 <NetMaskAllowed>N</NetMaskAllowed>
-                <ValidationMessage>Adresse d'écoute invalide.</ValidationMessage>
+                <ValidationMessage>Invalid listen address.</ValidationMessage>
             </listen_address>
             <listen_port type="PortField">
                 <Default>53535</Default>
@@ -23,7 +23,7 @@
                 <WildcardEnabled>N</WildcardEnabled>
                 <Required>N</Required>
                 <NetMaskAllowed>N</NetMaskAllowed>
-                <ValidationMessage>Indiquer l'adresse IP du résolveur amont.</ValidationMessage>
+                <ValidationMessage>Enter the IP address of the upstream resolver.</ValidationMessage>
             </upstream_address>
             <upstream_port type="PortField">
                 <Default>53</Default>
@@ -41,45 +41,52 @@
                 <Required>Y</Required>
                 <MinimumValue>0</MinimumValue>
                 <MaximumValue>86400</MaximumValue>
-                <ValidationMessage>Valeur entre 0 et 86400 secondes.</ValidationMessage>
+                <ValidationMessage>Value between 0 and 86400 seconds.</ValidationMessage>
             </ttl_min>
             <ttl_margin type="IntegerField">
                 <Default>3600</Default>
                 <Required>Y</Required>
                 <MinimumValue>0</MinimumValue>
                 <MaximumValue>604800</MaximumValue>
-                <ValidationMessage>Valeur entre 0 et 604800 secondes.</ValidationMessage>
+                <ValidationMessage>Value between 0 and 604800 seconds.</ValidationMessage>
             </ttl_margin>
             <max_entries_per_app type="IntegerField">
                 <Default>20000</Default>
                 <Required>Y</Required>
                 <MinimumValue>1</MinimumValue>
                 <MaximumValue>1000000</MaximumValue>
-                <ValidationMessage>Valeur entre 1 et 1000000.</ValidationMessage>
+                <ValidationMessage>Value between 1 and 1000000.</ValidationMessage>
             </max_entries_per_app>
             <exclude_networks type="NetworkField">
                 <WildcardEnabled>N</WildcardEnabled>
                 <Default>0.0.0.0/8,127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10,169.254.0.0/16,::1/128,fc00::/7,fe80::/10</Default>
                 <Required>N</Required>
                 <AsList>Y</AsList>
-                <ValidationMessage>Liste de réseaux invalide.</ValidationMessage>
+                <ValidationMessage>Invalid network list.</ValidationMessage>
             </exclude_networks>
             <alias_prefix type="TextField">
                 <Default>APP_</Default>
                 <Required>Y</Required>
                 <Mask>/^[A-Za-z][A-Za-z0-9_]{0,15}$/</Mask>
-                <ValidationMessage>Préfixe : une lettre puis lettres, chiffres ou « _ » (16 caractères au plus).</ValidationMessage>
+                <ValidationMessage>Prefix: a letter followed by letters, digits or "_" (16 characters at most).</ValidationMessage>
             </alias_prefix>
             <loglevel type="OptionField">
                 <Default>info</Default>
                 <Required>Y</Required>
                 <OptionValues>
-                    <error>Erreurs</error>
-                    <warning>Avertissements</warning>
-                    <info>Informations</info>
-                    <debug>Débogage</debug>
+                    <error>Errors</error>
+                    <warning>Warnings</warning>
+                    <info>Informational</info>
+                    <debug>Debug</debug>
                 </OptionValues>
             </loglevel>
+            <shared_platforms_extra type="CSVListField">
+                <Required>N</Required>
+            </shared_platforms_extra>
+            <unbound_autoforward type="BooleanField">
+                <Default>0</Default>
+                <Required>Y</Required>
+            </unbound_autoforward>
         </general>
         <apps>
             <app type="ArrayField">
@@ -90,10 +97,10 @@
                 <name type="TextField">
                     <Required>Y</Required>
                     <Mask>/^[A-Za-z0-9_]{1,31}$/</Mask>
-                    <ValidationMessage>Nom : lettres, chiffres ou « _ » uniquement.</ValidationMessage>
+                    <ValidationMessage>Name: letters, digits or "_" only (31 characters at most).</ValidationMessage>
                     <Constraints>
                         <check001>
-                            <ValidationMessage>Ce nom d'application existe déjà.</ValidationMessage>
+                            <ValidationMessage>An application with this name already exists.</ValidationMessage>
                             <type>UniqueConstraint</type>
                         </check001>
                     </Constraints>
@@ -105,9 +112,9 @@
                     <Default>manual</Default>
                     <Required>Y</Required>
                     <OptionValues>
-                        <manual>Manuelle</manual>
-                        <catalog>Catalogue (phase 2)</catalog>
-                        <v2fly>v2fly (phase 3)</v2fly>
+                        <manual>Manual</manual>
+                        <catalog>Catalog</catalog>
+                        <v2fly>v2fly domain-list-community</v2fly>
                     </OptionValues>
                 </origin>
                 <domains type="CSVListField">
@@ -120,20 +127,29 @@
                     <WildcardEnabled>N</WildcardEnabled>
                     <Required>N</Required>
                     <AsList>Y</AsList>
-                    <ValidationMessage>Liste de réseaux CIDR invalide.</ValidationMessage>
+                    <ValidationMessage>Invalid CIDR network list.</ValidationMessage>
                 </networks>
                 <families type="OptionField">
                     <Default>both</Default>
                     <Required>Y</Required>
                     <OptionValues>
-                        <both>IPv4 et IPv6</both>
-                        <inet>IPv4 seulement</inet>
-                        <inet6>IPv6 seulement</inet6>
+                        <both>IPv4 and IPv6</both>
+                        <inet>IPv4 only</inet>
+                        <inet6>IPv6 only</inet6>
                     </OptionValues>
                 </families>
                 <alias_uuid type="TextField">
                     <Required>N</Required>
                 </alias_uuid>
+                <catalog_refs type="CSVListField">
+                    <Required>N</Required>
+                </catalog_refs>
+                <catalog_rules type="CSVListField">
+                    <Required>N</Required>
+                </catalog_rules>
+                <catalog_revision type="TextField">
+                    <Required>N</Required>
+                </catalog_revision>
             </app>
         </apps>
     </items>

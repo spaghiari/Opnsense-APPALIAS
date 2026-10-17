@@ -1,0 +1,42 @@
+# Plateformes partagées (CDN, cloud, hébergement) servant de nombreux
+# services sans lien entre eux.
+#
+# Une règle « domain: » égale à l'un de ces noms, ou parente de l'un d'eux,
+# est refusée (validation du modèle et relais appaliasd) : elle mettrait dans
+# l'alias les adresses d'innombrables autres sites. Utiliser « full: » pour un
+# nom exact, ou « domain: » sur un sous-domaine dédié (domain:d123.cloudfront.net).
+#
+# Source unique pour le modèle PHP et le relais Python. Un nom par ligne, en
+# minuscules ; « # » commence un commentaire.
+cloudfront.net
+akamaiedge.net
+akamai.net
+akamaized.net
+akamaihd.net
+edgekey.net
+edgesuite.net
+fastly.net
+fastlylb.net
+azureedge.net
+azurefd.net
+trafficmanager.net
+cloudflare.net
+amazonaws.com
+googleusercontent.com
+googleapis.com
+gstatic.com
+1e100.net
+edgecastcdn.net
+llnwd.net
+b-cdn.net
+cdn77.org
+incapdns.net
+cloudapp.net
+windows.net
+github.io
+herokuapp.com
+workers.dev
+pages.dev
+vercel.app
+netlify.app
+appspot.com

@@ -1,0 +1,16 @@
+[google]
+google.com
+keyword:google
+
+[netflix]
+full:api.netflix.com @ads
+include:category-ads
+include:netflix-extra
+netflix.com
+nflxvideo.net
+spaced.example @cn
+
+[netflix-extra]
+extra.example @cn
+regexp:^x[0-9]+\.example$
+

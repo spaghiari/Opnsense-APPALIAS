@@ -1,14 +1,14 @@
 <form>
     <field>
         <id>app.enabled</id>
-        <label>Activée</label>
+        <label>Enabled</label>
         <type>checkbox</type>
     </field>
     <field>
         <id>app.name</id>
-        <label>Nom</label>
+        <label>Name</label>
         <type>text</type>
-        <help>Lettres, chiffres ou « _ ». L'alias créé s'appelle préfixe + nom (par exemple APP_EXEMPLE).</help>
+        <help>Letters, digits or "_". The alias is named prefix + name (for example APP_EXAMPLE).</help>
     </field>
     <field>
         <id>app.description</id>
@@ -16,41 +16,34 @@
         <type>text</type>
     </field>
     <field>
-        <id>app.origin</id>
-        <label>Origine</label>
-        <type>dropdown</type>
-        <advanced>true</advanced>
-        <help>Seule l'origine « Manuelle » est prise en charge dans cette version.</help>
-    </field>
-    <field>
         <id>app.domains</id>
-        <label>Domaines</label>
+        <label>Domains</label>
         <type>select_multiple</type>
         <style>tokenize</style>
         <allownew>true</allownew>
-        <help>« example.com » ou « domain:example.com » : le domaine et ses sous-domaines. « full:www.example.com » : ce nom exactement. « keyword: » et « regexp: » sont acceptés mais pas encore appliqués.</help>
+        <help>"example.com" or "domain:example.com": the domain and its sub-domains. "full:www.example.com": this exact name. "keyword:" and "regexp:" are discovery rules: kept, but never applied by the relay. A "domain:" rule on a top-level domain or on a shared platform (CDN, cloud) is refused: use "full:" or a dedicated sub-domain.</help>
     </field>
     <field>
         <id>app.networks</id>
-        <label>Réseaux manuels (CIDR)</label>
+        <label>Manual networks (CIDR)</label>
         <type>select_multiple</type>
         <style>tokenize</style>
         <allownew>true</allownew>
-        <help>Réseaux toujours présents dans l'alias, par exemple 192.0.2.0/24 ou 2001:db8::/32.</help>
+        <help>Networks always present in the alias, for example 192.0.2.0/24 or 2001:db8::/32.</help>
     </field>
     <field>
         <id>app.asns</id>
-        <label>ASN</label>
+        <label>ASNs</label>
         <type>select_multiple</type>
         <style>tokenize</style>
         <allownew>true</allownew>
         <advanced>true</advanced>
-        <help>Prévu pour une version ultérieure : enregistré mais pas encore utilisé.</help>
+        <help>Planned for a later version: saved but not used yet.</help>
     </field>
     <field>
         <id>app.families</id>
-        <label>Familles d'adresses</label>
+        <label>Address families</label>
         <type>dropdown</type>
-        <help>Familles des IP résolues ajoutées à l'alias.</help>
+        <help>Families of the resolved addresses added to the alias.</help>
     </field>
 </form>

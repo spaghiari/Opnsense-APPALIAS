@@ -1,0 +1,18 @@
+# Cycles : a > b > c > a, self > self.
+[a]
+a.example
+include:b
+[b]
+include:c
+[c]
+include:a
+[top]
+top.example
+include:a
+[ok]
+ok.example
+include:leaf
+[leaf]
+leaf.example
+[self]
+include:self

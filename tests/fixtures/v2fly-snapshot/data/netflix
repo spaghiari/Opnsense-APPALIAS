@@ -1,0 +1,9 @@
+# Netflix
+netflix.com
+full:api.netflix.com @ads   # trailing comment
+
+nflxvideo.net
+netflix.com
+include:netflix-extra
+include:category-ads
+   spaced.example     @cn   

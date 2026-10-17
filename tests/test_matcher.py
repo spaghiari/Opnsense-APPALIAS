@@ -41,12 +41,48 @@ class MatcherTests(unittest.TestCase):
         self.assertEqual(m.match(["nothing.test", "www.example.com"]), {"APP_A", "APP_B"})
 
     def test_keyword_regexp_ignored(self):
-        with self.assertLogs(self.logger, level="WARNING") as cm:
-            m = self.make({"APP_A": ["keyword:video", "regexp:^.*\\.example\\.com$"]})
-        self.assertEqual(len(cm.records), 2)
+        # Règles de découverte (0.3) : conservées, jamais appliquées, une seule
+        # ligne de journal en debug avec leur nombre (plus d'avertissement).
+        with self.assertLogs(self.logger, level="DEBUG") as cm:
+            m = self.make({"APP_A": ["keyword:video", "regexp:^.*\\.example\\.com$"],
+                           "APP_B": ["keyword:tv"]})
+        self.assertEqual(len(cm.records), 1)
+        self.assertEqual(cm.records[0].levelno, logging.DEBUG)
+        self.assertTrue(cm.records[0].getMessage().startswith("3 "))
         self.assertEqual(m.match_name("video.example.com"), set())
-        self.assertEqual(len(m.ignored), 2)
+        self.assertEqual(len(m.discovery), 3)
+        self.assertEqual(len(m.ignored), 3)
         self.assertFalse(m)
+
+    def test_shared_platforms_refused(self):
+        with self.assertLogs(self.logger, level="WARNING") as cm:
+            m = self.make({"APP_A": ["domain:cloudfront.net", "net", "*.amazonaws.com",
+                                     "domain:d123.cloudfront.net", "full:cloudfront.net",
+                                     "example.com"]})
+        self.assertEqual(len(cm.records), 1)
+        self.assertTrue(cm.records[0].getMessage().startswith("3 "))
+        self.assertEqual(len(m.refused), 3)
+        self.assertEqual(m.match_name("x.cloudfront.net"), set())
+        self.assertEqual(m.match_name("s3.amazonaws.com"), set())
+        self.assertEqual(m.match_name("a.d123.cloudfront.net"), {"APP_A"})
+        self.assertEqual(m.match_name("cloudfront.net"), {"APP_A"})
+        self.assertEqual(m.match_name("www.example.com"), {"APP_A"})
+
+    def test_shared_platforms_extra(self):
+        from lib import shared
+        platforms = shared.load(extra=["cdn.example.net"])
+        self.assertIn("cloudfront.net", platforms)
+        with self.assertLogs(self.logger, level="WARNING"):
+            m = Matcher({"APP_A": ["example.net", "domain:cdn.example.net", "x.cdn.example.net"]},
+                        logger=self.logger, platforms=platforms)
+        self.assertEqual(len(m.refused), 2)
+        self.assertEqual(m.match_name("a.x.cdn.example.net"), {"APP_A"})
+        self.assertEqual(m.match_name("www.example.net"), set())
+
+    def test_no_log_for_plain_rules(self):
+        with self.assertRaises(AssertionError):
+            with self.assertLogs(self.logger, level="DEBUG"):
+                self.make({"APP_A": ["example.com", "full:www.example.org"]})
 
     def test_unknown_prefix_and_empty(self):
         with self.assertLogs(self.logger, level="WARNING"):

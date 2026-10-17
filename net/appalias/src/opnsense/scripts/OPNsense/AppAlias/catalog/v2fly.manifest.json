@@ -1,0 +1,39 @@
+{
+  "archive_sha256": "b609b818a195352b4d79eff4b8761b4ea1cc61079df7283e7a3e43cfcd618c35",
+  "commit": "4b6e9f1e16c0905e8c1f1b22f7669ceb9507da8b",
+  "counts": {
+    "excluded_by_reason": {
+      "contains": 11,
+      "invalid_name": 0,
+      "name": 2,
+      "prefix": 116
+    },
+    "includes": 249,
+    "includes_to_excluded": 2,
+    "lines": 24883,
+    "lists_excluded": 129,
+    "lists_kept": 1416,
+    "lists_total": 1545,
+    "non_ascii_dropped": 0
+  },
+  "date": "2026-10-17T14:52:20Z",
+  "exclusions": {
+    "contains": [
+      "!"
+    ],
+    "name_pattern": "^[a-z0-9-]+$",
+    "names": [
+      "cn",
+      "private"
+    ],
+    "prefixes": [
+      "category-",
+      "geolocation-",
+      "tld-"
+    ]
+  },
+  "license": "MIT",
+  "lst_bytes": 414439,
+  "lst_sha256": "cb5fecde145a2a28c77a88825bf94c2e8a8b56a25b34c9ccc028cb9a97eb4a35",
+  "source": "https://github.com/v2fly/domain-list-community"
+}

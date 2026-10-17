@@ -24,15 +24,21 @@
 
 """Correspondance entre noms DNS et règles des applications.
 
-Règles (MVP) :
+Règles :
 - « domain:x » ou « x » seul : x et tous ses sous-domaines ;
 - « full:x » : x exactement ;
-- « keyword:… » et « regexp:… » : acceptés mais ignorés (phase 3),
-  avec un avertissement dans le journal.
+- « keyword:… » et « regexp:… » : règles de découverte, conservées dans la
+  configuration mais jamais appliquées par le relais (une seule ligne de
+  journal, en debug, avec leur nombre).
+
+Garde-fou (lib/shared.py) : « domain:x » est refusé quand x est un domaine de
+premier niveau seul, ou égal ou parent d'une plateforme partagée (une seule
+ligne de journal pour l'ensemble des refus).
 """
 
 import logging
 
+from . import shared
 from .dnswire import normalize_name
 
 KIND_DOMAIN = "domain"
@@ -74,10 +80,13 @@ def parse_rule(rule):
 class Matcher:
     """Index des règles : nom exact et suffixes de domaine."""
 
-    def __init__(self, rules_by_table, logger=None):
+    def __init__(self, rules_by_table, logger=None, platforms=None):
         self.log = logger or log
+        self.platforms = shared.load() if platforms is None else frozenset(platforms)
         self._full = {}
         self._domain = {}
+        self.discovery = []
+        self.refused = []
         self.ignored = []
         for table, rules in rules_by_table.items():
             for rule in rules or ():
@@ -88,16 +97,28 @@ class Matcher:
                 if kind == KIND_FULL:
                     self._full.setdefault(value, set()).add(table)
                 elif kind == KIND_DOMAIN:
-                    self._domain.setdefault(value, set()).add(table)
+                    if shared.refused(kind, value, self.platforms):
+                        self.refused.append((table, rule))
+                    else:
+                        self._domain.setdefault(value, set()).add(table)
                 elif kind in IGNORED_KINDS:
+                    self.discovery.append((table, rule))
                     self.ignored.append((table, rule))
-                    self.log.warning(
-                        "règle « %s » de %s ignorée : %s: n'est pas pris en charge "
-                        "dans cette version (prévu en phase 3)", rule, table, kind)
                 else:
                     self.ignored.append((table, rule))
                     self.log.warning("règle « %s » de %s ignorée : préfixe inconnu",
                                      rule, table)
+        if self.refused:
+            self.log.warning(
+                "%d règle(s) domain: refusée(s) (domaine de premier niveau, ou plateforme "
+                "partagée ou parent de l'une d'elles ; utiliser full:) : %s",
+                len(self.refused),
+                ", ".join("%s (%s)" % (r, t) for t, r in self.refused[:5])
+                + (", …" if len(self.refused) > 5 else ""))
+        if self.discovery:
+            self.log.debug(
+                "%d règle(s) de découverte (keyword:, regexp:) conservée(s), "
+                "non appliquée(s) par le relais", len(self.discovery))
 
     def match_name(self, name):
         """Tables concernées par un nom."""

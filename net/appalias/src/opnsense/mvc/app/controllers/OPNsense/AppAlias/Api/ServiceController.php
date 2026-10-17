@@ -36,7 +36,10 @@ use OPNsense\Core\Backend;
  *
  * start / stop / restart : hérités (actions configd « appalias start|stop|restart ») ;
  * status : JSON de status.py (état du démon + compteurs par application) ;
- * reconfigure : template, export, sync, puis rechargement (SIGHUP) ou démarrage.
+ * reconfigure : template, export, sync, branchement d'Unbound, puis rechargement
+ *               (SIGHUP) ou démarrage ;
+ * unboundStatus : état du branchement d'Unbound ; unboundRestart : redémarrage
+ *               d'Unbound, seulement à la demande de l'utilisateur.
  */
 class ServiceController extends ApiMutableServiceControllerBase
 {
@@ -55,7 +58,7 @@ class ServiceController extends ApiMutableServiceControllerBase
         $raw = trim((string)$backend->configdRun('appalias status'));
         $data = json_decode($raw, true);
         if (!is_array($data)) {
-            return ['status' => 'unknown', 'apps' => [], 'error' => gettext('Réponse de status.py illisible.')];
+            return ['status' => 'unknown', 'apps' => [], 'error' => gettext('Unreadable answer from status.py.')];
         }
         $mdl = new \OPNsense\AppAlias\AppAlias();
         if ((string)$mdl->general->enabled != '1' && ($data['status'] ?? '') != 'running') {
@@ -74,7 +77,9 @@ class ServiceController extends ApiMutableServiceControllerBase
 
     /**
      * Ordre : template rc.conf.d, export de config.json, synchronisation des
-     * alias (avec filter reload), puis SIGHUP si le démon tourne, sinon démarrage.
+     * alias (avec filter reload), zones de transfert d'Unbound (redémarrage
+     * d'Unbound seulement si la liste a changé), puis SIGHUP si le démon tourne,
+     * sinon démarrage.
      */
     public function reconfigureAction()
     {
@@ -93,11 +98,11 @@ class ServiceController extends ApiMutableServiceControllerBase
                 static::$internalServiceName
             ), gettext('Configuration exception'));
         }
-        foreach (['export', 'sync'] as $step) {
+        foreach (['export', 'sync', 'unbound'] as $step) {
             if (trim($backend->configdRun('appalias ' . $step)) !== 'OK') {
                 return [
                     'status' => 'failed',
-                    'status_msg' => sprintf(gettext('AppAlias : l\'étape « %s » a échoué, voir le journal.'), $step),
+                    'status_msg' => sprintf(gettext('AppAlias: the "%s" step failed, see the log.'), $step),
                 ];
             }
         }
@@ -117,5 +122,38 @@ class ServiceController extends ApiMutableServiceControllerBase
             $res = $backend->configdRun('appalias start');
         }
         return ['status' => trim($res) === 'OK' ? 'ok' : 'failed'];
+    }
+
+    /**
+     * État du branchement d'Unbound (zones transférées, conflits ignorés,
+     * erreurs).
+     */
+    public function unboundStatusAction()
+    {
+        $backend = new Backend();
+        $data = json_decode(trim((string)$backend->configdRun('appalias unbound_status')), true);
+        return is_array($data) ? $data : [];
+    }
+
+    /**
+     * Redémarrage d'Unbound à la demande de l'utilisateur (après confirmation
+     * dans l'interface). Le fichier est d'abord régénéré, sans redémarrage.
+     */
+    public function unboundRestartAction()
+    {
+        if (!$this->request->isPost()) {
+            return ['status' => 'failed'];
+        }
+        $backend = new Backend();
+        if (trim((string)$backend->configdRun('appalias unbound_write')) !== 'OK') {
+            return [
+                'status' => 'failed',
+                'status_msg' => gettext('AppAlias: writing the Unbound zones failed, see the log.'),
+            ];
+        }
+        if (trim((string)$backend->configdRun('unbound restart')) !== 'OK') {
+            return ['status' => 'failed', 'status_msg' => gettext('Unbound restart failed, see the log.')];
+        }
+        return ['status' => 'ok'];
     }
 }

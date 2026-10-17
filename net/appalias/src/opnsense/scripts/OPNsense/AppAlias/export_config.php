@@ -33,8 +33,10 @@
  */
 
 require_once('script/load_phalcon.php');
+require_once('interfaces.lib.inc');
 
 use OPNsense\AppAlias\AppAlias;
+use OPNsense\Core\Config;
 
 const APPALIAS_DIR = '/var/db/appalias';
 const APPALIAS_CONFIG = '/var/db/appalias/config.json';
@@ -61,6 +63,9 @@ $out = [
         'exclude_networks' => AppAlias::splitList($gen->exclude_networks),
         'alias_prefix' => (string)$gen->alias_prefix,
         'loglevel' => (string)$gen->loglevel,
+        'shared_platforms_extra' => AppAlias::splitList($gen->shared_platforms_extra),
+        // opt-in : valeur vide (config 0.2) = désactivé
+        'unbound_autoforward' => (string)$gen->unbound_autoforward == '1',
     ],
     'apps' => [],
 ];
@@ -77,8 +82,69 @@ foreach ($mdl->apps->app->iterateItems() as $uuid => $app) {
         'networks' => AppAlias::splitList($app->networks),
         'families' => (string)$app->families,
         'alias_uuid' => (string)$app->alias_uuid,
+        'catalog_refs' => AppAlias::splitList($app->catalog_refs),
     ];
 }
+
+/*
+ * Configuration Unbound d'OPNsense (OPNsense.unboundplus, modèle
+ * OPNsense\Unbound\Unbound) utile au dédoublonnage des zones de transfert
+ * (lib/unboundfwd.py) : entrées dots (Query Forwarding et DNS over TLS),
+ * noms locaux (domaine du système, host overrides, alias, anciens overrides),
+ * et adresses du pare-feu (détection de boucle sur l'amont du relais).
+ */
+$unbound = ['enabled' => false, 'port' => 53, 'dots' => [], 'local_domains' => [], 'local_addresses' => []];
+
+/* Adresses IPv4 et IPv6 de toutes les interfaces, VIP comprises (méthode du core). */
+foreach (legacy_interfaces_details() as $ifname => $ifdata) {
+    foreach (['ipv4', 'ipv6'] as $proto) {
+        foreach ($ifdata[$proto] ?? [] as $address) {
+            if (!empty($address['ipaddr'])) {
+                $unbound['local_addresses'][] = (string)$address['ipaddr'];
+            }
+        }
+    }
+}
+$unbound['local_addresses'] = array_values(array_unique($unbound['local_addresses']));
+$cfg = Config::getInstance()->object();
+if (isset($cfg->system->domain)) {
+    $unbound['local_domains'][] = (string)$cfg->system->domain;
+}
+if (isset($cfg->OPNsense->unboundplus)) {
+    $ub = $cfg->OPNsense->unboundplus;
+    $unbound['enabled'] = isset($ub->general->enabled) && (string)$ub->general->enabled == '1';
+    if (isset($ub->general->port) && (string)$ub->general->port !== '') {
+        $unbound['port'] = (int)(string)$ub->general->port;
+    }
+    if (isset($ub->dots->dot)) {
+        foreach ($ub->dots->dot as $dot) {
+            $unbound['dots'][] = [
+                'domain' => (string)$dot->domain,
+                'type' => (string)$dot->type,
+                'enabled' => (string)$dot->enabled == '1',
+            ];
+        }
+    }
+    foreach (['hosts' => 'host', 'aliases' => 'alias'] as $section => $item) {
+        if (isset($ub->$section->$item)) {
+            foreach ($ub->$section->$item as $entry) {
+                $host = trim((string)$entry->hostname);
+                $domain = trim((string)$entry->domain);
+                if ($domain !== '') {
+                    $unbound['local_domains'][] = $host !== '' ? $host . '.' . $domain : $domain;
+                }
+            }
+        }
+    }
+    if (isset($ub->domains->domain)) {
+        foreach ($ub->domains->domain as $entry) {
+            if (trim((string)$entry->domain) !== '') {
+                $unbound['local_domains'][] = (string)$entry->domain;
+            }
+        }
+    }
+}
+$out['unbound'] = $unbound;
 
 if (!is_dir(APPALIAS_DIR)) {
     mkdir(APPALIAS_DIR, 0750, true);

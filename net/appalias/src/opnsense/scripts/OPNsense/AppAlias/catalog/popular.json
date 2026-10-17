@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "categories": [
+    {"name": "Streaming", "lists": ["youtube", "twitch", "netflix", "disney", "primevideo", "hulu", "hbo"]},
+    {"name": "Music", "lists": ["spotify", "deezer", "soundcloud", "tidal"]},
+    {"name": "Gaming", "lists": ["steam", "epicgames", "blizzard", "playstation", "xbox", "nintendo", "riot", "ea"]},
+    {"name": "Messaging", "lists": ["discord", "whatsapp", "telegram", "signal", "line"]},
+    {"name": "Social", "lists": ["tiktok", "instagram", "facebook", "twitter", "reddit", "pinterest", "linkedin"]},
+    {"name": "Productivity", "lists": ["zoom", "microsoft", "apple", "google", "slack", "dropbox", "github", "notion"]}
+  ]
+}

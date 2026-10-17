@@ -61,6 +61,6 @@ run service configd restart
 
 echo
 echo "Installé. Étapes suivantes :"
-echo "  1. Services > AppAlias > Réglages : indiquer le résolveur amont, activer, enregistrer."
-echo "  2. Ajouter une application, puis « Appliquer »."
+echo "  1. Services > AppAlias > Settings : indiquer le résolveur amont, activer, enregistrer."
+echo "  2. Ajouter une application, puis « Apply »."
 echo "  3. Rediriger Unbound (Query Forwarding) ou Dnsmasq vers 127.0.0.1 port 53535."

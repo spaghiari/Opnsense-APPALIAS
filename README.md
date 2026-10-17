@@ -41,15 +41,82 @@ Installation par copie, publication et maintenance : voir
 
 ## Configuration
 
-1. *Services > AppAlias > Réglages* : indiquer le résolveur DNS amont (celui
+1. *Services > AppAlias > Settings* : indiquer le résolveur DNS amont (celui
    que le pare-feu utilisait jusque-là), activer, enregistrer.
-2. *Services > Unbound DNS > Query Forwarding* : ajouter un transfert sans
-   domaine vers `127.0.0.1`, port `53535`. Avec Dnsmasq : serveur amont
-   `127.0.0.1#53535`. Ne jamais indiquer le résolveur local comme DNS amont du
-   relais (boucle).
+2. **Unbound, mode automatique (opt-in)** : cocher *Forward application
+   domains from Unbound* dans *Settings*. **Apply** écrit alors une zone de
+   transfert par domaine des applications activées
+   (`/usr/local/etc/unbound.opnsense.d/appalias.conf`, vers
+   `127.0.0.1@53535`, avec `forward-first: yes`) et redémarre Unbound
+   (`configctl unbound restart`) seulement si la liste des domaines a changé.
+   Seuls ces domaines passent par le relais : les autres requêtes gardent leur
+   chemin habituel (DNS over TLS, Query Forwarding).
+   - Les noms déjà présents dans Unbound (Query Forwarding, DNS over TLS,
+     overrides de domaine, actifs ou non), leurs sous-domaines et les noms
+     locaux (domaine du système, host overrides, `lan`, `home.arpa`…) sont
+     écartés, car Unbound ignore une zone en double (la première chargée
+     gagne) ; un sous-domaine d'un domaine déjà transféré est fusionné. La
+     liste des noms écartés et leur raison s'affichent dans *Settings*.
+   - Une règle `full:x` transfère toute la zone `x`, sous-domaines compris
+     (sur-ensemble sans effet sur les alias, qui suivent les règles) ; le
+     garde-fou des plateformes partagées s'applique donc aussi aux `full:`.
+     `keyword:` et `regexp:` ne sont jamais transférés.
+   - `forward-first` : si le relais est arrêté ou planté, Unbound se rabat
+     pour ces domaines sur une **récursion directe** vers les serveurs faisant
+     autorité (DNS en clair sur le port 53), qui **contourne DNS over TLS et
+     le Query Forwarding « . »**. Si le port 53 sortant est bloqué, ces
+     domaines répondent SERVFAIL tant que le relais est arrêté. Pendant la
+     panne, leurs adresses n'entrent pas dans les alias. *Settings* affiche un
+     avertissement quand un transfert « . » (DoT ou Forward) est actif.
+   - Après l'ajout d'un Query Forwarding pour un domaine aussi utilisé par
+     AppAlias, cliquer sur **Apply** dans AppAlias. Le fichier est aussi
+     régénéré, sans redémarrage, à chaque démarrage d'Unbound.
+   - Les pages Unbound affichent alors une bannière « manual overwrites » :
+     elle est attendue (fichier hors du core).
+   - L'amont du relais doit être un résolveur réel : jamais une adresse du
+     pare-feu (interfaces, VIP, bouclage) sur le port 53 ou celui d'Unbound
+     (boucle ; le plugin ne transfère alors aucune zone et l'indique).
+   - *Settings* propose aussi un redémarrage manuel d'Unbound, après
+     confirmation.
+
+   **Mode manuel (par défaut)** : option décochée, dans *Services >
+   Unbound DNS > Query Forwarding* ajouter, pour chaque domaine, un transfert
+   vers `127.0.0.1`, port `53535`. Une entrée sans domaine (tous domaines)
+   est supplantée par un transfert DNS over TLS « . ». Avec Dnsmasq : serveur
+   amont `127.0.0.1#53535`.
 3. *Services > AppAlias > Applications* : ajouter une application (nom,
-   domaines, réseaux CIDR éventuels), puis **Appliquer**. L'alias `APP_<NOM>`
+   domaines, réseaux CIDR éventuels), puis **Apply**. L'alias `APP_<NOM>`
    apparaît dans *Pare-feu > Alias*.
+
+L'interface du plugin est en anglais (textes source OPNsense) ; les
+traductions viennent du projet de traduction d'OPNsense.
+
+## Catalogue
+
+L'onglet *Catalog* cherche dans un instantané embarqué de
+[v2fly/domain-list-community](https://github.com/v2fly/domain-list-community)
+(commit épinglé, empreinte vérifiée ; aucun téléchargement sur le pare-feu),
+par nom de liste (`netflix`) ou par domaine (`nflxvideo.net`). L'aperçu
+regroupe les règles par type et laisse choisir celles à importer, dans une
+nouvelle application ou par fusion dans une application existante :
+
+- les règles marquées `@ads` et celles qui touchent une plateforme partagée
+  (CDN, cloud) sont décochées par défaut ;
+- une règle `domain:` sur une plateforme partagée entière, sur l'un de ses
+  parents ou sur un domaine de premier niveau seul est refusée (utiliser
+  `full:` ou un sous-domaine dédié) ; la liste se complète dans les réglages
+  (*Extra shared platforms*) ;
+- l'import enregistre l'application, sans rien appliquer : il faut toujours
+  cliquer sur **Apply**.
+
+Après une mise à jour du plugin (nouvel instantané), la grille indique pour
+chaque application importée le nombre de « catalog updates » : règles
+ajoutées ou retirées par le catalogue, à cocher dans une modale avant
+enregistrement. Les règles ajoutées à la main sont conservées.
+
+**Règles de découverte** : `keyword:` et `regexp:` sont conservées dans la
+configuration mais jamais appliquées par le relais (une seule ligne de
+journal, en debug, indique leur nombre).
 
 ## Exemple
 
@@ -73,8 +140,9 @@ La règle IPv6 évite la fuite hors du VPN.
   prochaine résolution.
 - **Écoute** : laisser le relais sur `127.0.0.1` (défaut). Ouvert au LAN, un
   client pourrait remplir les alias jusqu'au plafond par application.
-- **État actuel (0.2)** : sources ASN, catalogue d'applications, règles
-  `keyword:` et `regexp:` ne sont pas encore disponibles.
+- **État actuel (0.3)** : catalogue v2fly disponible ; les sources ASN ne
+  sont pas encore utilisées et les règles `keyword:` / `regexp:` restent des
+  règles de découverte.
 
 ## Contribuer, sécurité, licence
 
@@ -82,7 +150,9 @@ La règle IPv6 évite la fuite hors du VPN.
 - Signaler une vulnérabilité : [SECURITY.md](SECURITY.md)
 - Licence : BSD-2-Clause, voir [LICENSE](LICENSE)
 
-Les listes v2fly utilisées plus tard (`geosite`) viendront de
-[v2fly/domain-list-community](https://github.com/v2fly/domain-list-community)
-(licence MIT) ; leur notice de copyright et le texte de la licence MIT seront
-joints à la distribution.
+Le catalogue embarqué provient de
+[v2fly/domain-list-community](https://github.com/v2fly/domain-list-community),
+Copyright (c) 2018-2019 V2Ray, distribué sous licence MIT. La notice de
+copyright et le texte de la licence MIT sont joints à la distribution :
+`net/appalias/src/opnsense/scripts/OPNsense/AppAlias/catalog/LICENSE.v2fly`
+(installé sous `/usr/local/opnsense/scripts/OPNsense/AppAlias/catalog/`).

@@ -1,0 +1,7 @@
+Jeu de test de tools/v2fly-snapshot.py (tests/test_catalog_snapshot.py).
+
+data/ et LICENSE sont empaquetés par le test dans une archive tar au format
+de GitHub (domain-list-community-<commit>/...), dates et propriétaires fixes.
+expected/ contient la sortie attendue, octet pour octet ; dans
+v2fly.manifest.json.in, @ARCHIVE_SHA256@ est remplacé par l'empreinte de
+l'archive construite par le test.
