@@ -1,2 +1,8 @@
 __pycache__/
 *.pyc
+site/
+out/
+*.key
+*.pem
+!keys/*.pub
+dist/

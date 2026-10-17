@@ -34,6 +34,153 @@ client -> Unbound/Dnsmasq (pare-feu) -> appaliasd 127.0.0.1:53535 -> résolveur 
 
 ## Installation
 
+### Installer depuis le dépôt (recommandé)
+
+Le dépôt pkg est publié sur GitHub Pages
+(`https://spaghiari.github.io/Opnsense-APPALIAS/`), signé par clé publique.
+Il sert deux ABI : `FreeBSD:14:amd64` (OPNsense 26.1) et `FreeBSD:15:amd64`
+(OPNsense 26.7). En root sur le pare-feu, commande en une ligne (compatible
+tcsh, le shell root d'OPNsense) :
+
+```sh
+fetch -o /tmp/add-repo.sh https://spaghiari.github.io/Opnsense-APPALIAS/add-repo.sh && sh /tmp/add-repo.sh
+```
+
+Le script refuse une ABI autre que celles ci-dessus, télécharge la clé et la
+configuration du dépôt, affiche l'empreinte SHA256 de la clé publique et la
+**refuse** si elle diffère de la constante `EXPECTED_SHA256` du script, puis
+lance `pkg update -f -r appalias` (en cas d'échec, les deux fichiers sont
+retirés). L'empreinte attendue est :
+
+```
+325cde334cd45a513bbf8598d51627c991b78bc20379d5648fc4a499ac40a4b3
+```
+
+Pour la comparer à la main : sur le pare-feu, `sha256 -q /usr/local/etc/pkg/keys/appalias.pub` ;
+dans le dépôt, `sha256sum keys/appalias.pub` (Linux, Git Bash).
+
+Ensuite, dans *System > Firmware > Plugins*, cliquer sur « Check for
+updates » : `os-appalias` apparaît dans la liste (le pare-feu affiche tout
+paquet `os-*` des dépôts activés, sans priorité à régler). Pour retirer le
+dépôt (clé et configuration) :
+
+```sh
+fetch -o /tmp/add-repo.sh https://spaghiari.github.io/Opnsense-APPALIAS/add-repo.sh && sh /tmp/add-repo.sh -u
+```
+
+#### Prérequis GitHub (BLOQUANT avant la première publication)
+
+Sans ces réglages, la publication échoue ou, pire, la clé reste exposée :
+
+1. *Settings > Environments > github-pages > Deployment branches and tags* :
+   ajouter la règle de tag `v*` (sinon le déploiement d'un tag est refusé).
+2. Créer l'environnement `release` avec **Required reviewers** (le
+   propriétaire) et *Deployment branches and tags* limité à `main` et aux tags
+   `v*`.
+3. Dans cet environnement, créer le secret `PKG_SIGNING_KEY` (clé privée RSA
+   4096, PEM), puis **supprimer le secret de niveau dépôt** du même nom.
+
+#### Publier une version
+
+1. Augmenter `PLUGIN_VERSION` dans `net/appalias/Makefile`, et commiter (via
+   une pull request : `main` est protégée).
+2. Poser le tag `vX.Y` correspondant (par exemple `v0.2` pour `0.2`), puis
+   le pousser. Le job `publish` vérifie que le tag égale `v` + `PLUGIN_VERSION`
+   et échoue sinon.
+3. Le workflow vérifie (`lint`, `test`), construit un paquet **non signé** par
+   ABI dans une VM FreeBSD correspondante (job `build`, sans aucun secret),
+   attend l'approbation manuelle de l'environnement `release`, signe (job
+   `sign`), puis déploie sur Pages (job `publish`). Les pull requests ne font
+   que `lint`, `test` et `build` : ni signature ni publication. Un
+   `workflow_dispatch` lancé depuis `main` republie aussi.
+
+Nom du paquet attendu : `os-appalias-<VERSION>.pkg`, où `<VERSION>` est
+`PLUGIN_VERSION`, suivi de `_<PLUGIN_REVISION>` si cette variable est définie
+dans le Makefile (par exemple `0.2_1`). Le build passe `PLUGIN_DEVEL=` (vide)
+pour supprimer le suffixe `-devel` que `Mk/defaults.mk` ajoute par défaut ; un
+autre nom de fichier fait échouer le build.
+
+#### Changer les commits d'opnsense/plugins
+
+Le build n'utilise pas la tête d'une branche mais un commit épinglé, un par
+ABI, dans la matrice du job `build` de `.github/workflows/build.yml` (champ
+`plugins_commit`) : branche `stable/26.1` pour FreeBSD 14.3, branche
+`stable/26.7` pour FreeBSD 15.1. Pour les mettre à jour à la main :
+
+```sh
+git ls-remote https://github.com/opnsense/plugins refs/heads/stable/26.1 refs/heads/stable/26.7
+```
+
+Recopier chaque SHA de 40 caractères dans le champ `plugins_commit` de la
+ligne correspondante, puis commiter via une pull request. Le script
+`scripts/build-packages.sh` récupère exactement ce commit (`git init`,
+`git fetch --depth 1 origin <sha>`, `checkout FETCH_HEAD`) et vérifie que
+`git rev-parse HEAD` le confirme.
+
+#### Rotation de clé
+
+1. Générer la nouvelle paire **hors du dépôt**, par exemple dans
+   `~/.appalias/` : `openssl genrsa -out ~/.appalias/appalias.key 4096`, puis
+   `openssl rsa -in ~/.appalias/appalias.key -pubout -out keys/appalias.pub`
+   (`*.key` et `*.pem` sont dans `.gitignore`, `keys/*.pub` reste suivi).
+2. Remplacer le secret `PKG_SIGNING_KEY` de l'environnement `release`.
+3. Calculer l'empreinte (`sha256sum keys/appalias.pub` sous Linux ou Git Bash,
+   `sha256 -q keys/appalias.pub` sous FreeBSD), puis mettre à jour **à la fois**
+   `EXPECTED_SHA256` dans `tools/add-repo.sh` et l'empreinte du présent README.
+   Le job `publish` échoue si l'une des deux diffère de la clé.
+4. Détruire la copie locale de la clé privée (ou l'archiver hors ligne).
+5. Republier (nouveau tag ou `workflow_dispatch`). Chaque client relance la
+   commande d'installation, qui re-télécharge le script à jour (avec la
+   nouvelle `EXPECTED_SHA256`) et la nouvelle clé. Tant qu'il garde l'ancienne
+   clé, `pkg update` échoue sur la signature.
+
+#### Piège : toujours publier les deux ABI
+
+Si le répertoire `${ABI}` du client manque sur Pages, `meta.conf` renvoie une
+404 : `pkg update` échoue et la page Firmware aussi. Ne jamais publier une
+seule ABI ni retirer l'une des deux (les jobs `sign` et `publish` échouent s'il
+en manque une). Chaque paquet doit être construit sur la base FreeBSD de son
+ABI : un paquet construit sur une base plus récente est refusé par une base
+plus ancienne. Les répertoires `FreeBSD:14:amd64` et `FreeBSD:15:amd64`
+contiennent des `:` et ne sont créés que par la CI : ne jamais les commiter.
+
+#### Sécurité de la chaîne de publication
+
+- **Build sans secret** : le job `build` (push, PR, tag) ne reçoit aucun secret
+  et ne produit qu'un `.pkg` non signé.
+- **Signature isolée** : le job `sign` ne tourne que sur un tag `v*` ou un
+  `workflow_dispatch` depuis `main`, jamais sur une PR. Il exige l'approbation
+  manuelle de l'environnement `release`, n'exécute que `scripts/sign-repo.sh`
+  (pas de clone, pas de make), et `PKG_SIGNING_KEY` n'est passé qu'à l'étape
+  de signature. La clé est écrite hors du workspace en 0600 puis supprimée.
+- **Actions épinglées** : chaque `uses:` est épinglé par SHA de 40 caractères
+  (version en commentaire) ; Dependabot (`.github/dependabot.yml`, hebdomadaire)
+  propose les mises à jour. Le job `lint` lance zizmor sur les workflows et
+  fait échouer la CI.
+- **opnsense/plugins épinglé** par commit, une branche stable par ABI.
+- **Vérification côté client** : `add-repo.sh` refuse toute clé dont
+  l'empreinte diffère de `EXPECTED_SHA256`, et `pkg` vérifie ensuite la
+  signature du catalogue avec cette clé.
+- **Modèle de confiance, honnêtement** : la première installation fait
+  confiance au script récupéré en HTTPS depuis GitHub Pages, donc à la
+  sécurité du compte GitHub du propriétaire (confiance à la première
+  utilisation, TOFU). Un compte compromis peut publier un script modifié, donc
+  une autre empreinte ; seule une comparaison avec ce README, obtenu par un
+  autre canal, protège contre cela. La signature protège les mises à jour
+  suivantes, pas la première installation.
+
+Réglages GitHub à activer :
+
+- Protection de `main` : pull request obligatoire, pas de force-push.
+- Ruleset de tags `v*` : création réservée au propriétaire, pas de
+  suppression ni de mise à jour.
+- Secret scanning et push protection.
+- Dependabot alerts et security updates.
+- *Actions > General > Workflow permissions* : « Read repository contents ».
+- « Require approval for all outside collaborators » pour les PR de forks.
+- Désactiver « Allow GitHub Actions to create and approve pull requests ».
+- Activer « Private vulnerability reporting » (voir `SECURITY.md`).
+
 ### Par copie (test sur une box)
 
 Copier le projet sur la box, puis en root :

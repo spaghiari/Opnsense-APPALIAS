@@ -1,0 +1,10 @@
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # Laisser 7 jours à une nouvelle version d'Action avant de la proposer
+    # (le temps qu'une compromission éventuelle soit repérée).
+    cooldown:
+      default-days: 7

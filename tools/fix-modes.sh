@@ -21,7 +21,9 @@ DRYRUN=0
 [ "${1:-}" = "-n" ] && DRYRUN=1
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-SRC="${ROOT}/net/appalias/src"
+# APPALIAS_SRC (facultatif) : racine src/ du plugin à traiter, par exemple une
+# copie dans un clone d'opnsense/plugins (utilisé par scripts/build-packages.sh).
+SRC="${APPALIAS_SRC:-${ROOT}/net/appalias/src}"
 ACTIONS="${SRC}/opnsense/service/conf/actions.d/actions_appalias.conf"
 
 if [ ! -d "${SRC}/etc/rc.d" ] || [ ! -f "${ACTIONS}" ]; then

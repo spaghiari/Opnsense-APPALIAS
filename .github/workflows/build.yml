@@ -1,0 +1,291 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+# Aucun droit par défaut : chaque job déclare le minimum dont il a besoin.
+permissions: {}
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      # Audit statique des workflows ; les findings font échouer le job
+      # (advanced-security: false, pas d'envoi SARIF).
+      - uses: zizmorcore/zizmor-action@85b2b9fb8e3325e7a23d7d0a9d7ba5ae0f999e3e # v0.7.1
+        with:
+          inputs: .github/workflows
+          advanced-security: false
+          # Version de zizmor figée : une nouvelle version peut ajouter des
+          # audits et bloquer une release. À monter volontairement.
+          version: "1.31.1"
+
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - name: Tests unitaires
+        run: python3 -B -m unittest discover -s tests
+      - name: Syntaxe des scripts shell
+        run: |
+          for f in scripts/*.sh tools/*.sh; do
+            sh -n "$f"
+            echo "ok : $f"
+          done
+
+  # Construction du paquet NON signé. Aucun secret n'est disponible ici.
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - freebsd: "14.3"
+            opnsense: "26.1"
+            abi: "FreeBSD:14:amd64"
+            # stable/26.1
+            plugins_commit: "6f3937f938377464534ebebde66cc13d84186542"
+          - freebsd: "15.1"
+            opnsense: "26.7"
+            abi: "FreeBSD:15:amd64"
+            # stable/26.7
+            plugins_commit: "5ac2959c8514b4f60e94d65439be5f629f10521f"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Construire le paquet (VM FreeBSD ${{ matrix.freebsd }})
+        uses: vmactions/freebsd-vm@c46abacb49f09938ca4e1702d15d836285d694cc # v1.5.9
+        env:
+          OPNSENSE_ABI: ${{ matrix.opnsense }}
+          PKG_ABI: ${{ matrix.abi }}
+          PLUGINS_COMMIT: ${{ matrix.plugins_commit }}
+        with:
+          release: ${{ matrix.freebsd }}
+          usesh: true
+          envs: "OPNSENSE_ABI PKG_ABI PLUGINS_COMMIT"
+          run: |
+            sh scripts/build-packages.sh "$OPNSENSE_ABI" "$PKG_ABI" "$PLUGINS_COMMIT"
+
+      - name: Nom d'artifact (sans ':')
+        id: prep
+        env:
+          PKG_ABI: ${{ matrix.abi }}
+        run: |
+          slug=$(printf '%s' "$PKG_ABI" | tr ':' '-')
+          echo "slug=${slug}" >> "$GITHUB_OUTPUT"
+          find dist -type f | sort
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: pkg-${{ steps.prep.outputs.slug }}
+          path: dist
+          if-no-files-found: error
+
+  # Signature isolée : jamais sur une PR, approbation manuelle (environment
+  # « release »), secret limité à l'étape de signature.
+  sign:
+    needs: [lint, test, build]
+    if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    environment: release
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - freebsd: "14.3"
+            abi: "FreeBSD:14:amd64"
+          - freebsd: "15.1"
+            abi: "FreeBSD:15:amd64"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Nom d'artifact (sans ':')
+        id: prep
+        env:
+          PKG_ABI: ${{ matrix.abi }}
+        run: |
+          slug=$(printf '%s' "$PKG_ABI" | tr ':' '-')
+          echo "slug=${slug}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: pkg-${{ steps.prep.outputs.slug }}
+          path: unsigned
+
+      - name: Placer le paquet dans le dépôt
+        env:
+          PKG_ABI: ${{ matrix.abi }}
+        run: |
+          mkdir -p "site/${PKG_ABI}/All"
+          cp unsigned/os-appalias-*.pkg "site/${PKG_ABI}/All/"
+          find site -type f | sort
+
+      - name: Signer le dépôt (VM FreeBSD ${{ matrix.freebsd }})
+        uses: vmactions/freebsd-vm@c46abacb49f09938ca4e1702d15d836285d694cc # v1.5.9
+        env:
+          PKG_SIGNING_KEY: ${{ secrets.PKG_SIGNING_KEY }}
+          PKG_ABI: ${{ matrix.abi }}
+        with:
+          release: ${{ matrix.freebsd }}
+          usesh: true
+          envs: "PKG_SIGNING_KEY PKG_ABI"
+          run: |
+            sh scripts/sign-repo.sh "$PKG_ABI"
+
+      - name: Préparer l'artifact (répertoire sans ':')
+        env:
+          PKG_ABI: ${{ matrix.abi }}
+        run: |
+          mkdir out
+          cp -R "site/${PKG_ABI}/." out/
+          find out -type f | sort
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: repo-${{ steps.prep.outputs.slug }}
+          path: out
+          if-no-files-found: error
+
+  publish:
+    needs: sign
+    if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+      contents: read
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Vérifier que le tag correspond à la version du Makefile
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version=$(sed -n 's/^PLUGIN_VERSION=[[:space:]]*\([^[:space:]]*\).*/\1/p' net/appalias/Makefile)
+          rev=$(sed -n 's/^PLUGIN_REVISION=[[:space:]]*\([^[:space:]]*\).*/\1/p' net/appalias/Makefile)
+          expected="v${version}"
+          if [ -n "$rev" ] && [ "$rev" != "0" ]; then
+            expected="v${version}_${rev}"
+          fi
+          if [ -z "$version" ] || [ "$TAG" != "$expected" ]; then
+            echo "Le tag ${TAG} ne correspond pas à la version du Makefile (${expected})." >&2
+            exit 1
+          fi
+          echo "Tag ${TAG} conforme à PLUGIN_VERSION ${version}."
+
+      - name: Vérifier l'empreinte de la clé publique
+        run: |
+          actual=$(sha256sum keys/appalias.pub | cut -d' ' -f1)
+          expected=$(sed -n 's/^EXPECTED_SHA256="\([0-9a-f]*\)"$/\1/p' tools/add-repo.sh)
+          if [ -z "$expected" ] || [ "$actual" != "$expected" ]; then
+            echo "keys/appalias.pub (${actual}) differe de EXPECTED_SHA256 de tools/add-repo.sh (${expected:-introuvable})." >&2
+            exit 1
+          fi
+          if ! grep -qx "$actual" README.md; then
+            echo "L'empreinte ${actual} n'est pas ecrite dans README.md." >&2
+            exit 1
+          fi
+          echo "Empreinte conforme : ${actual}"
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: repo-*
+          path: artifacts
+
+      - name: Assembler le site
+        run: |
+          mkdir -p site
+          for abi in FreeBSD:14:amd64 FreeBSD:15:amd64; do
+            slug=$(printf '%s' "$abi" | tr ':' '-')
+            mkdir -p "site/${abi}"
+            cp -R "artifacts/repo-${slug}/." "site/${abi}/"
+          done
+          cp keys/appalias.pub site/appalias.pub
+          sed -n "/<<'APPALIAS_CONF'/,/^APPALIAS_CONF\$/p" tools/add-repo.sh | sed '1d;$d' > /tmp/embedded.conf
+          if ! diff -u repo/appalias.conf /tmp/embedded.conf; then
+            echo "La configuration embarquée dans tools/add-repo.sh diffère de repo/appalias.conf." >&2
+            exit 1
+          fi
+          cp repo/appalias.conf site/appalias.conf
+          cp tools/add-repo.sh site/add-repo.sh
+          cat > site/index.html <<'EOF'
+          <!DOCTYPE html>
+          <html lang="fr">
+          <head>
+            <meta charset="utf-8">
+            <title>os-appalias - dépôt de paquets OPNsense</title>
+          </head>
+          <body>
+            <h1>os-appalias</h1>
+            <p>Dépôt pkg signé du plugin OPNsense os-appalias (un alias pare-feu par application).</p>
+            <p>Installation, en root sur le pare-feu (compatible tcsh) :</p>
+            <pre>fetch -o /tmp/add-repo.sh https://spaghiari.github.io/Opnsense-APPALIAS/add-repo.sh &amp;&amp; sh /tmp/add-repo.sh</pre>
+            <p>Puis System &gt; Firmware &gt; Plugins, « Check for updates ».
+            Vérifier l'empreinte SHA256 de la clé publique affichée avec celle du
+            <a href="https://github.com/spaghiari/Opnsense-APPALIAS">README</a>.</p>
+          </body>
+          </html>
+          EOF
+
+      - name: Vérifier les deux ABI
+        run: |
+          status=0
+          for abi in FreeBSD:14:amd64 FreeBSD:15:amd64; do
+            for f in meta.conf packagesite.pkg; do
+              if [ ! -s "site/${abi}/${f}" ]; then
+                echo "Manquant : site/${abi}/${f}" >&2
+                status=1
+              fi
+            done
+            if ! ls "site/${abi}"/All/os-appalias-*.pkg > /dev/null 2>&1; then
+              echo "Manquant : site/${abi}/All/os-appalias-*.pkg" >&2
+              status=1
+            fi
+          done
+          for f in appalias.pub appalias.conf add-repo.sh index.html; do
+            [ -s "site/${f}" ] || { echo "Manquant : site/${f}" >&2; status=1; }
+          done
+          exit "$status"
+
+      - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
+
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
+        with:
+          path: site
+
+      - id: deploy
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
