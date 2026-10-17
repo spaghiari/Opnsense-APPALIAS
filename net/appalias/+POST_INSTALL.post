@@ -1,0 +1,7 @@
+# os-appalias : après une mise à jour, le relais en cours d'exécution garde
+# l'ancien code en mémoire (le rechargement SIGHUP ne relit que la
+# configuration). On le redémarre s'il tourne ; sinon rien.
+if /usr/local/etc/rc.d/appaliasd onestatus > /dev/null 2>&1; then
+	echo "Restarting appaliasd"
+	/usr/local/etc/rc.d/appaliasd onerestart > /dev/null 2>&1 || true
+fi

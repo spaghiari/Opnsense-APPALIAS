@@ -134,8 +134,8 @@ class ModelTests(unittest.TestCase):
             self.assertIn(name, volt)
 
     def test_plugin_version(self):
-        self.assertRegex(read(os.path.join(PLUGIN, "Makefile")), r"PLUGIN_VERSION=\s+0\.4\.1\n")
-        self.assertIn("\n0.4.1\n", read(os.path.join(PLUGIN, "pkg-descr")))
+        self.assertRegex(read(os.path.join(PLUGIN, "Makefile")), r"PLUGIN_VERSION=\s+0.4.2\n")
+        self.assertIn("\n0.4.2\n", read(os.path.join(PLUGIN, "pkg-descr")))
 
 
 class ActionTests(unittest.TestCase):

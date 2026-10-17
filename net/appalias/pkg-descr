@@ -18,6 +18,12 @@ WWW: https://github.com/spaghiari/Opnsense-APPALIAS
 Plugin Changelog
 ================
 
+0.4.2
+
+* Upgrade: the relay is restarted after the package is upgraded when it is
+  running, so the new code is used right away (a reload only rereads the
+  configuration).
+
 0.4.1
 
 * Settings: choosing DNS over TLS sets the upstream port to 853 (when it is

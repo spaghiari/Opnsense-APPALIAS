@@ -196,7 +196,7 @@ immédiat et la bascule aussi.
   prochaine résolution.
 - **Écoute** : laisser le relais sur `127.0.0.1` (défaut). Ouvert au LAN, un
   client pourrait remplir les alias jusqu'au plafond par application.
-- **État actuel (0.4.1)** : catalogue v2fly et DNS over TLS vers l'amont
+- **État actuel (0.4.2)** : catalogue v2fly et DNS over TLS vers l'amont
   disponibles (port 853 et nom TLS préremplis, 53 refusé en DNS over TLS) ; les sources ASN ne sont pas encore utilisées et les règles `keyword:` / `regexp:` restent des
   règles de découverte.
 
