@@ -1,0 +1,28 @@
+name: Demande d'évolution
+description: Proposer une amélioration ou une nouvelle fonction.
+labels: ["amélioration", "à trier"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Toute demande est relue à la main par le mainteneur ; son ouverture n'engage à rien.
+  - type: textarea
+    id: besoin
+    attributes:
+      label: Besoin
+      description: Quel problème voulez-vous résoudre ?
+    validations:
+      required: true
+  - type: textarea
+    id: proposition
+    attributes:
+      label: Proposition
+      description: Comment imaginez-vous la solution ?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives envisagées
+    validations:
+      required: false

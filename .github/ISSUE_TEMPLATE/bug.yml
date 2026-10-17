@@ -1,0 +1,64 @@
+name: Signaler un bug
+description: Un comportement inattendu d'os-appalias.
+labels: ["bug", "à trier"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Merci de votre signalement. Toute issue est relue à la main par le mainteneur.
+        Pour une vulnérabilité, n'ouvrez pas d'issue : voir `SECURITY.md`.
+  - type: input
+    id: opnsense
+    attributes:
+      label: Version d'OPNsense
+      placeholder: "26.1.x"
+    validations:
+      required: true
+  - type: input
+    id: appalias
+    attributes:
+      label: Version d'os-appalias
+      placeholder: "0.1"
+    validations:
+      required: true
+  - type: dropdown
+    id: montage
+    attributes:
+      label: Montage DNS
+      options:
+        - Unbound transfère vers le relais (127.0.0.1:53535)
+        - Dnsmasq transfère vers le relais
+        - Relais en écoute directe pour les clients
+        - Autre / je ne sais pas
+    validations:
+      required: true
+  - type: textarea
+    id: etapes
+    attributes:
+      label: Étapes pour reproduire
+      placeholder: |
+        1. ...
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: attendu
+    attributes:
+      label: Comportement attendu
+    validations:
+      required: true
+  - type: textarea
+    id: observe
+    attributes:
+      label: Comportement observé
+    validations:
+      required: true
+  - type: textarea
+    id: journaux
+    attributes:
+      label: Journaux
+      description: |
+        ATTENTION : avant de coller quoi que ce soit, retirez les adresses IP, les domaines internes et tous les secrets (clés, jetons, mots de passe).
+      render: text
+    validations:
+      required: false

@@ -1,0 +1,52 @@
+name: Demande d'ajout d'une application au catalogue
+description: Proposer une application pour le catalogue.
+labels: ["catalogue", "à trier"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Le catalogue d'applications arrive dans une prochaine version ; les demandes sont collectées dès maintenant pour l'alimenter.
+        Une demande est **toujours relue à la main** par le mainteneur.
+        Un numéro d'ASN n'est **jamais accepté sans vérification** : une source vérifiable est obligatoire.
+        N'indiquez aucune information propre à votre installation (IP, domaines internes).
+  - type: input
+    id: nom
+    attributes:
+      label: Nom de l'application
+    validations:
+      required: true
+  - type: textarea
+    id: domaines
+    attributes:
+      label: Domaines
+      description: Un par ligne, au format v2fly `domain:` (domaine et sous-domaines) ou `full:` (nom exact).
+      placeholder: |
+        domain:example.com
+        full:www.example.org
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: asn
+    attributes:
+      label: ASN éventuels
+      description: |
+        Facultatif. Si vous en indiquez, joignez pour chacun une source vérifiable (lien RIPEstat ou équivalent) montrant qu'il appartient bien à l'éditeur de l'application. Sans source, l'ASN sera ignoré.
+      placeholder: |
+        AS64496 - https://stat.ripe.net/...
+    validations:
+      required: false
+  - type: textarea
+    id: cdn
+    attributes:
+      label: Risques de CDN partagé
+      description: Les domaines ou ASN sont-ils partagés avec d'autres services (CDN, cloud) ? Un alias trop large bloquerait ou routerait d'autres sites.
+    validations:
+      required: true
+  - type: textarea
+    id: sources
+    attributes:
+      label: Sources
+      description: Liens qui justifient la liste (documentation de l'éditeur, listes publiques, relevés).
+    validations:
+      required: true

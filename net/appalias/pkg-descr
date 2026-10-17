@@ -13,6 +13,8 @@ rules: use the aliases in your own block, pass or policy routing rules.
 
 License: BSD-2-Clause
 
+WWW: https://github.com/spaghiari/Opnsense-APPALIAS
+
 Plugin Changelog
 ================
 

@@ -1,5 +1,5 @@
 {#
- # Copyright (C) Les contributeurs d'os-appalias
+ # Copyright (C) 2026 spaghiari
  # All rights reserved.
  #
  # Redistribution and use in source and binary forms, with or without

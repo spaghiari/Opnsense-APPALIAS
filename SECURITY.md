@@ -4,7 +4,7 @@
 
 Ne pas ouvrir d'issue publique. Utiliser le signalement privé de GitHub :
 onglet **Security** du dépôt, puis **Report a vulnerability** (« Private
-vulnerability reporting », à activer dans Settings > Code security).
+vulnerability reporting »).
 
 Sont concernés : le plugin os-appalias, les scripts d'installation
 (`tools/add-repo.sh`) et la chaîne de publication du dépôt pkg (workflows,

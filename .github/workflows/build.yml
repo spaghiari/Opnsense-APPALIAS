@@ -51,6 +51,7 @@ jobs:
 
   # Construction du paquet NON signé. Aucun secret n'est disponible ici.
   build:
+    name: build (${{ matrix.abi }})
     needs: test
     runs-on: ubuntu-latest
     permissions:

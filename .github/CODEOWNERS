@@ -1,0 +1,11 @@
+# Le propriétaire relit toute contribution.
+* @spaghiari
+
+# Listées explicitement pour mémoire (zones sensibles de la chaîne de
+# publication) : elles n'ajoutent aucune contrainte technique, la règle `*`
+# les couvre déjà.
+/.github/ @spaghiari
+/keys/ @spaghiari
+/scripts/ @spaghiari
+/tools/add-repo.sh @spaghiari
+/repo/ @spaghiari
