@@ -1,0 +1,87 @@
+<form>
+    <field>
+        <id>appalias.general.enabled</id>
+        <label>Activer</label>
+        <type>checkbox</type>
+        <help>Démarre le relais DNS appaliasd et la synchronisation des alias APP_*.</help>
+    </field>
+    <field>
+        <id>appalias.general.listen_address</id>
+        <label>Adresse d'écoute</label>
+        <type>text</type>
+        <help>Adresse locale du relais. Par défaut 127.0.0.1 : seul le résolveur local (Unbound ou Dnsmasq) l'interroge.</help>
+    </field>
+    <field>
+        <id>appalias.general.listen_port</id>
+        <label>Port d'écoute</label>
+        <type>text</type>
+        <help>Port UDP et TCP du relais (53535 par défaut).</help>
+    </field>
+    <field>
+        <id>appalias.general.upstream_address</id>
+        <label>Résolveur amont</label>
+        <type>text</type>
+        <help>Adresse IP du résolveur auquel le relais transmet chaque requête telle quelle. Obligatoire, sans valeur par défaut.</help>
+    </field>
+    <field>
+        <id>appalias.general.upstream_port</id>
+        <label>Port amont</label>
+        <type>text</type>
+    </field>
+    <field>
+        <id>appalias.general.upstream_fallback</id>
+        <label>Amonts de secours</label>
+        <type>select_multiple</type>
+        <style>tokenize</style>
+        <allownew>true</allownew>
+        <help>Liste ip:port (ou [ipv6]:port) essayée dans l'ordre si l'amont principal ne répond pas.</help>
+    </field>
+    <field>
+        <id>appalias.general.follow_cname</id>
+        <label>Suivre les CNAME</label>
+        <type>checkbox</type>
+        <help>Les noms de la chaîne CNAME d'une réponse comptent aussi pour la correspondance.</help>
+    </field>
+    <field>
+        <id>appalias.general.ttl_min</id>
+        <label>TTL minimal (s)</label>
+        <type>text</type>
+        <advanced>true</advanced>
+        <help>Une IP reste au moins ce temps dans la table, même si le TTL DNS est plus court.</help>
+    </field>
+    <field>
+        <id>appalias.general.ttl_margin</id>
+        <label>Marge de TTL (s)</label>
+        <type>text</type>
+        <advanced>true</advanced>
+        <help>Durée ajoutée à l'expiration de chaque IP (couvre le cache des clients). Expiration = maintenant + max(TTL, TTL minimal) + marge.</help>
+    </field>
+    <field>
+        <id>appalias.general.max_entries_per_app</id>
+        <label>Entrées max. par application</label>
+        <type>text</type>
+        <advanced>true</advanced>
+        <help>Au-delà, plus aucune IP n'est ajoutée et un message est journalisé.</help>
+    </field>
+    <field>
+        <id>appalias.general.exclude_networks</id>
+        <label>Réseaux exclus</label>
+        <type>select_multiple</type>
+        <style>tokenize</style>
+        <allownew>true</allownew>
+        <advanced>true</advanced>
+        <help>Les IP résolues dans ces réseaux ne sont jamais ajoutées (adresses privées, locales, etc.).</help>
+    </field>
+    <field>
+        <id>appalias.general.alias_prefix</id>
+        <label>Préfixe des alias</label>
+        <type>text</type>
+        <advanced>true</advanced>
+        <help>Nom de l'alias = préfixe + nom de l'application (31 caractères au plus).</help>
+    </field>
+    <field>
+        <id>appalias.general.loglevel</id>
+        <label>Niveau de journal</label>
+        <type>dropdown</type>
+    </field>
+</form>

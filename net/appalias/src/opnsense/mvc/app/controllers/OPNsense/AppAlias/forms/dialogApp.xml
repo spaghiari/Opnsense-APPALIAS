@@ -1,0 +1,56 @@
+<form>
+    <field>
+        <id>app.enabled</id>
+        <label>Activée</label>
+        <type>checkbox</type>
+    </field>
+    <field>
+        <id>app.name</id>
+        <label>Nom</label>
+        <type>text</type>
+        <help>Lettres, chiffres ou « _ ». L'alias créé s'appelle préfixe + nom (par exemple APP_EXEMPLE).</help>
+    </field>
+    <field>
+        <id>app.description</id>
+        <label>Description</label>
+        <type>text</type>
+    </field>
+    <field>
+        <id>app.origin</id>
+        <label>Origine</label>
+        <type>dropdown</type>
+        <advanced>true</advanced>
+        <help>Seule l'origine « Manuelle » est prise en charge dans cette version.</help>
+    </field>
+    <field>
+        <id>app.domains</id>
+        <label>Domaines</label>
+        <type>select_multiple</type>
+        <style>tokenize</style>
+        <allownew>true</allownew>
+        <help>« example.com » ou « domain:example.com » : le domaine et ses sous-domaines. « full:www.example.com » : ce nom exactement. « keyword: » et « regexp: » sont acceptés mais pas encore appliqués.</help>
+    </field>
+    <field>
+        <id>app.networks</id>
+        <label>Réseaux manuels (CIDR)</label>
+        <type>select_multiple</type>
+        <style>tokenize</style>
+        <allownew>true</allownew>
+        <help>Réseaux toujours présents dans l'alias, par exemple 192.0.2.0/24 ou 2001:db8::/32.</help>
+    </field>
+    <field>
+        <id>app.asns</id>
+        <label>ASN</label>
+        <type>select_multiple</type>
+        <style>tokenize</style>
+        <allownew>true</allownew>
+        <advanced>true</advanced>
+        <help>Prévu pour une version ultérieure : enregistré mais pas encore utilisé.</help>
+    </field>
+    <field>
+        <id>app.families</id>
+        <label>Familles d'adresses</label>
+        <type>dropdown</type>
+        <help>Familles des IP résolues ajoutées à l'alias.</help>
+    </field>
+</form>

@@ -1,0 +1,9 @@
+<acl>
+    <page-services-appalias>
+        <name>Services: AppAlias</name>
+        <patterns>
+            <pattern>ui/appalias/*</pattern>
+            <pattern>api/appalias/*</pattern>
+        </patterns>
+    </page-services-appalias>
+</acl>

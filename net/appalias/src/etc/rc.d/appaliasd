@@ -1,0 +1,103 @@
+#!/bin/sh
+#
+# PROVIDE: appaliasd
+# REQUIRE: NETWORKING syslogd
+# BEFORE: unbound dnsmasq
+# KEYWORD: shutdown
+#
+# Relais DNS d'os-appalias.
+#
+# Variable (/etc/rc.conf.d/appaliasd, générée par le modèle de configuration) :
+#   appaliasd_enable="YES" | "NO"
+
+. /etc/rc.subr
+
+name="appaliasd"
+rcvar="appaliasd_enable"
+
+load_rc_config "${name}"
+
+: ${appaliasd_enable:="NO"}
+
+pidfile="/var/run/appaliasd.pid"
+childpidfile="/var/run/appaliasd.child.pid"
+scriptdir="/usr/local/opnsense/scripts/OPNsense/AppAlias"
+python="/usr/local/bin/python3"
+datadir="/var/db/appalias"
+
+start_cmd="appaliasd_start"
+stop_cmd="appaliasd_stop"
+status_cmd="appaliasd_status"
+reload_cmd="appaliasd_reload"
+extra_commands="reload"
+
+appaliasd_pid()
+{
+	# PID du superviseur daemon(8) ; échec s'il ne tourne pas.
+	[ -f "${pidfile}" ] || return 1
+	_pid=$(cat "${pidfile}" 2>/dev/null)
+	[ -n "${_pid}" ] && kill -0 "${_pid}" 2>/dev/null && echo "${_pid}"
+}
+
+appaliasd_start()
+{
+	if _pid=$(appaliasd_pid); then
+		echo "${name} is already running as pid ${_pid}."
+		return 0
+	fi
+	mkdir -p "${datadir}"
+	chmod 0750 "${datadir}"
+	# Toujours partir d'une config.json à jour.
+	"${scriptdir}/export_config.php" >/dev/null 2>&1
+	echo "Starting ${name}."
+	/usr/sbin/daemon -r -R 10 -S -T appalias \
+	    -P "${pidfile}" -p "${childpidfile}" \
+	    "${python}" "${scriptdir}/appaliasd.py"
+}
+
+appaliasd_stop()
+{
+	if ! _pid=$(appaliasd_pid); then
+		echo "${name} is not running."
+		rm -f "${pidfile}" "${childpidfile}"
+		return 0
+	fi
+	echo "Stopping ${name}."
+	# daemon(8) transmet SIGTERM au démon, qui sauvegarde son état.
+	kill -TERM "${_pid}"
+	_i=0
+	while kill -0 "${_pid}" 2>/dev/null && [ ${_i} -lt 15 ]; do
+		sleep 1
+		_i=$((_i + 1))
+	done
+	if kill -0 "${_pid}" 2>/dev/null; then
+		kill -KILL "${_pid}" 2>/dev/null
+	fi
+	rm -f "${pidfile}" "${childpidfile}"
+}
+
+appaliasd_status()
+{
+	if _pid=$(appaliasd_pid); then
+		echo "${name} is running as pid ${_pid}."
+	else
+		echo "${name} is not running."
+		return 1
+	fi
+}
+
+appaliasd_reload()
+{
+	# SIGHUP au processus Python, pas au superviseur.
+	if [ -f "${childpidfile}" ]; then
+		_cpid=$(cat "${childpidfile}" 2>/dev/null)
+		if [ -n "${_cpid}" ] && kill -0 "${_cpid}" 2>/dev/null; then
+			kill -HUP "${_cpid}"
+			return 0
+		fi
+	fi
+	echo "${name} is not running."
+	return 1
+}
+
+run_rc_command "$1"

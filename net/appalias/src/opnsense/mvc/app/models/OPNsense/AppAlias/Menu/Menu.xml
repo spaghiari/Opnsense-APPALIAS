@@ -1,0 +1,5 @@
+<menu>
+    <Services>
+        <AppAlias VisibleName="AppAlias" cssClass="fa fa-tags fa-fw" url="/ui/appalias/"/>
+    </Services>
+</menu>

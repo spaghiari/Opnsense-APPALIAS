@@ -1,0 +1,21 @@
+os-appalias crée un alias pare-feu External par application (APP_<NOM>)
+et le remplit automatiquement : un relais DNS local (appaliasd) ajoute à
+l'alias les adresses A/AAAA des domaines de l'application, au moment où
+elles sont résolues, et des réseaux CIDR peuvent être saisis à la main.
+Le plugin ne crée aucune règle : les alias servent dans vos propres règles
+(blocage, autorisation, routage par passerelle).
+
+os-appalias creates one External firewall alias per application
+(APP_<NAME>) and fills it automatically: a local DNS relay (appaliasd)
+adds the A/AAAA addresses of the application's domains as they are
+resolved, and CIDR networks can be added by hand. The plugin creates no
+rules: use the aliases in your own block, pass or policy routing rules.
+
+License: BSD-2-Clause
+
+Plugin Changelog
+================
+
+0.1
+
+* Première version (MVP) : relais DNS, règles domain:/full:, CIDR manuels.
