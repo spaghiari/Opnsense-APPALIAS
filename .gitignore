@@ -6,3 +6,6 @@ out/
 *.pem
 !keys/*.pub
 dist/
+# certificats et clé de test (publics, réservés aux tests)
+!tests/fixtures/tls/*.pem
+!tests/fixtures/tls/*.key

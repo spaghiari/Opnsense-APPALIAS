@@ -117,8 +117,8 @@ class ConfigTests(unittest.TestCase):
         })
         self.assertTrue(cfg.enabled)
         self.assertFalse(cfg.follow_cname)
-        self.assertEqual(cfg.upstreams, [("192.0.2.53", 53), ("198.51.100.53", 5353),
-                                         ("2001:db8::53", 53)])
+        self.assertEqual(cfg.upstreams, [("192.0.2.53", 53, None), ("198.51.100.53", 5353, None),
+                                         ("2001:db8::53", 53, None)])
         self.assertEqual(len(cfg.apps), 1)
         self.assertEqual(cfg.apps[0].table, "APP_X")
         self.assertEqual(cfg.apps[0].domains, ["example.com", "full:a.example.net"])

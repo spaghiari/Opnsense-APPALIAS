@@ -114,6 +114,34 @@ class PlanTests(unittest.TestCase):
         data["general"]["upstream_fallback"] = ["192.168.1.1:53"]   # amont de secours
         self.assertEqual(self.plan(data)[0], [])
 
+    def test_loop_detection_dot_and_relay_ports(self):
+        # 853 et le port du relais, quel que soit le protocole de l'amont
+        for protocol in ("dns", "dot"):
+            for upstream, port, loop in (("127.0.0.1", 853, True),
+                                         ("192.168.1.1", 853, True),
+                                         ("127.0.0.1", 53535, True),     # le relais lui-même
+                                         ("127.0.0.1", 8853, False),
+                                         ("9.9.9.9", 853, False)):
+                data = load_fixture()
+                data["general"].update({"upstream_protocol": protocol, "upstream_address": upstream,
+                                        "upstream_port": port, "upstream_tls_name": "dns.quad9.net"})
+                zones, conflicts, _active = self.plan(data)
+                self.assertEqual(not zones, loop, (protocol, upstream, port))
+                self.assertEqual(any(c["reason"] == "loop" for c in conflicts), loop,
+                                 (protocol, upstream, port))
+        data = load_fixture()
+        data["general"].update({"upstream_protocol": "dot", "upstream_port": 853,
+                                "upstream_tls_name": "dns.quad9.net",
+                                "upstream_fallback": ["127.0.0.1#local.example"]})   # 853 par défaut
+        self.assertEqual(self.plan(data)[0], [])
+
+    def test_root_forward_system_nameservers(self):
+        # « Use System Nameservers » (unboundplus.forwarding.enabled) : transfert « . »
+        self.assertTrue(ub.root_forward_active({"forwarding": True, "dots": []}))
+        self.assertFalse(ub.root_forward_active({"forwarding": False, "dots": []}))
+        self.assertFalse(ub.root_forward_active({"dots": []}))
+        self.assertFalse(ub.root_forward_active({"forwarding": "0"}))
+
     def test_names_revalidated(self):
         data = load_fixture()
         data["apps"] = [{"name": "A", "domains": ["ok.example", "bad..example", "x\"y.example",
@@ -276,6 +304,23 @@ class SyncTests(unittest.TestCase):
         self.write(data)
         _code, status = self.sync(restarter=Restarter())
         self.assertTrue(status["root_forward"])
+        data["unbound"]["dots"] = []
+        data["unbound"]["forwarding"] = True          # Use System Nameservers
+        self.write(data)
+        _code, status = self.sync(restarter=Restarter())
+        self.assertTrue(status["root_forward"])
+
+    def test_upstream_in_status(self):
+        _code, status = self.sync(restarter=Restarter())
+        self.assertEqual((status["upstream_protocol"], status["upstream_tls_name"], status["upstream_port"]),
+                         ("dns", "", 53))
+        data = load_fixture()
+        data["general"].update({"upstream_address": "9.9.9.9", "upstream_protocol": "dot",
+                                "upstream_port": 853, "upstream_tls_name": "dns.quad9.net"})
+        self.write(data)
+        _code, status = self.sync(restarter=Restarter())
+        self.assertEqual((status["upstream_protocol"], status["upstream_tls_name"], status["upstream_port"]),
+                         ("dot", "dns.quad9.net", 853))
 
     def test_loop_reported(self):
         data = load_fixture()

@@ -103,7 +103,11 @@ def sync(config_path=cfgmod.CONFIG_PATH, conf_path=ub.CONF_PATH, runtime_path=ub
     status.update({"active": active, "zones": ub.parse_zones(text), "count": len(ub.parse_zones(text)),
                    "conflicts": conflicts, "forward_addr": ub.forward_addr(cfg),
                    "changed": text != old, "unbound_enabled": unbound_enabled,
-                   "root_forward": ub.root_forward_active(cfg.unbound)})
+                   "root_forward": ub.root_forward_active(cfg.unbound),
+                   # amont du relais, pour l'encadré d'état de Settings
+                   "upstream_protocol": cfg.upstream_protocol,
+                   "upstream_tls_name": cfg.upstream_tls_name or "",
+                   "upstream_port": cfg.upstreams[0].port if cfg.upstreams else None})
     if any(c["reason"] == "loop" for c in conflicts):
         status["errors"].append(ub.REASONS["loop"] + ": no zone forwarded")
         log(True, status["errors"][-1])

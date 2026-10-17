@@ -34,6 +34,10 @@ Bornes :
 
 parse_response() ne lève jamais d'exception : en cas d'erreur de lecture,
 elle renvoie None et l'appelant transmet la réponse sans rien en tirer.
+
+fit_udp() ramène une réponse obtenue par un flux (DNS over TLS) à la taille
+UDP annoncée par le client (EDNS0, 512 octets sans EDNS) : au-delà, réponse
+tronquée (TC=1, question seule), le client réessaie en TCP.
 """
 
 import ipaddress
@@ -275,6 +279,90 @@ def addresses(resp, names):
             best[rec.data] = rec.ttl
             order.append(rec.data)
     return [(ip, best[ip]) for ip in order]
+
+
+TYPE_OPT = 41
+UDP_MIN_PAYLOAD = 512
+UDP_MAX_PAYLOAD = 4096
+
+
+def udp_payload_size(query):
+    """Taille de réponse UDP acceptée par le client qui a envoyé query.
+
+    Classe de l'enregistrement OPT de la section additionnelle (EDNS0,
+    RFC 6891 §6.2.3 et §6.2.5), 512 au moins ; 512 sans EDNS ou si la
+    requête est illisible (RFC 1035 §4.2.1).
+    """
+    try:
+        query = bytes(query)
+        if len(query) < HEADER.size or len(query) > MAX_MESSAGE:
+            return UDP_MIN_PAYLOAD
+        _qid, _flags, qdcount, ancount, nscount, arcount = HEADER.unpack_from(query, 0)
+        if qdcount + ancount + nscount + arcount > MAX_RECORDS:
+            return UDP_MIN_PAYLOAD
+        pos = HEADER.size
+        for _ in range(qdcount):
+            _name, pos = read_name(query, pos)
+            pos += Q_FIXED.size
+        for index in range(ancount + nscount + arcount):
+            _name, pos = read_name(query, pos)
+            if pos + RR_FIXED.size > len(query):
+                return UDP_MIN_PAYLOAD
+            rtype, rclass, _ttl, rdlength = RR_FIXED.unpack_from(query, pos)
+            if index >= ancount + nscount and rtype == TYPE_OPT:
+                # plafond : au-delà de net.inet.udp.maxdgram (9216 sur FreeBSD),
+                # sendto échoue en silence ; 4096 est la valeur usuelle
+                return min(max(UDP_MIN_PAYLOAD, rclass), UDP_MAX_PAYLOAD)
+            pos += RR_FIXED.size + rdlength
+            if pos > len(query):
+                return UDP_MIN_PAYLOAD
+    except Exception:
+        pass
+    return UDP_MIN_PAYLOAD
+
+
+def raw_question(msg):
+    """Octets de la première question de msg (nom sans compression), ou None."""
+    try:
+        msg = bytes(msg)
+        if len(msg) < HEADER.size or HEADER.unpack_from(msg, 0)[2] < 1:
+            return None
+        pos = HEADER.size
+        while True:
+            length = msg[pos]
+            if length == 0:
+                break
+            if length & 0xC0:  # pointeur : absent d'une question bien formée en tête
+                return None
+            pos += 1 + length
+        end = pos + 1 + Q_FIXED.size
+        if end > len(msg) or end - HEADER.size > MAX_NAME_LENGTH + 1 + Q_FIXED.size:
+            return None
+        return msg[HEADER.size:end]
+    except IndexError:
+        return None
+
+
+def truncate(query, resp):
+    """Réponse tronquée valide : en-tête de resp avec TC=1, question seule.
+
+    La question est celle de la requête du client (même casse), sinon celle de
+    la réponse ; aucune ne se lit : en-tête seul.
+    """
+    resp = bytes(resp)
+    qid, flags, _qd, _an, _ns, _ar = HEADER.unpack_from(resp, 0)
+    question = raw_question(query)
+    if question is None:
+        question = raw_question(resp)
+    count = 1 if question is not None else 0
+    return HEADER.pack(qid, flags | FLAG_TC, count, 0, 0, 0) + (question or b"")
+
+
+def fit_udp(query, resp):
+    """resp si elle tient dans la taille UDP du client, sinon truncate(query, resp)."""
+    if resp is None or len(resp) < HEADER.size or len(resp) <= udp_payload_size(query):
+        return resp
+    return truncate(query, resp)
 
 
 def make_servfail(query):

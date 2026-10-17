@@ -33,6 +33,8 @@ ZONE = {
                         ("node.cdn.example.com", TYPE_A, 60, "192.0.2.40")],
     "other.example.net": [("other.example.net", TYPE_A, 60, "198.51.100.1")],
     "many.example.com": [("many.example.com", TYPE_A, 60, "192.0.2.%d" % i) for i in range(100, 105)],
+    # réponse de plus de 512 octets (troncature UDP)
+    "large.example.com": [("large.example.com", TYPE_A, 60, "198.51.100.%d" % i) for i in range(1, 41)],
 }
 TRUNCATED = "big.example.com"
 WRONG_QNAME = "wrongq.example.com"   # l'amont répond avec un autre qname
@@ -139,7 +141,7 @@ def recv_exact(sock, size):
 
 
 class RelayHarness:
-    def __init__(self, cfg_dict, tmpdir, fake, clock=None, state=None):
+    def __init__(self, cfg_dict, tmpdir, fake, clock=None, state=None, tls_cafile=None):
         self.config_path = os.path.join(tmpdir, "config.json")
         self.state_path = os.path.join(tmpdir, "state.json")
         with open(self.config_path, "w", encoding="utf-8") as fh:
@@ -148,10 +150,12 @@ class RelayHarness:
             with open(self.state_path, "w", encoding="utf-8") as fh:
                 json.dump(state, fh)
         cfg = cfgmod.load(self.config_path)
+        extra = {"tls_cafile": tls_cafile} if tls_cafile is not None else {}
         self.relay = appaliasd.Relay(cfg, PfTable(pfctl=["pfctl"], runner=fake, tmpdir=tmpdir),
                                      state_path=self.state_path, config_path=self.config_path,
-                                     clock=clock or time.time)
+                                     clock=clock or time.time, **extra)
         self.relay.udp_timeout = 0.5
+        self.relay.dot_timeout = 1.0
         self.relay.ready = threading.Event()
         self.thread = threading.Thread(
             target=lambda: asyncio.run(self.relay.run(install_signals=False)), daemon=True)
@@ -286,6 +290,17 @@ class ProxyIntegrationTests(unittest.TestCase):
         data = udp_query(h.port, TRUNCATED, qid=0x5151)
         self.assertEqual(data, build_response(TRUNCATED, [], qid=0x5151, tc=True))
         self.assertEqual(fake.ops("add"), [])
+
+    def test_large_udp_answer_passed_through(self):
+        # DNS clair, UDP -> UDP : la réponse de l'amont est rendue telle quelle,
+        # sans troncature par le relais (l'amont applique lui-même la taille EDNS).
+        fake = FakePf()
+        h = self.start([app("TEST", ["example.com"])], fake)
+        data = udp_query(h.port, "large.example.com", qid=0x5252)
+        expected = build_response("large.example.com", ZONE["large.example.com"], qid=0x5252)
+        self.assertGreater(len(expected), 512)
+        self.assertEqual(data, expected)
+        self.assertEqual(len(fake.contents("APP_TEST")), 40)
 
     def test_unmatched_and_cname(self):
         fake = FakePf()

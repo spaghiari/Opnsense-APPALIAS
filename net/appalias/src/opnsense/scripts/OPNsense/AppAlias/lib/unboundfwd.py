@@ -62,8 +62,13 @@ bruit. Un nom est écarté, avec sa raison, quand il est
   test) (« local ») ;
 - sous-domaine d'une zone déjà retenue (« merged », fusion enfant/parent).
 Boucle : si l'amont du relais (principal ou de secours) est une adresse du
-pare-feu (interfaces, VIP) ou de bouclage, sur le port 53 ou celui
-d'Unbound, aucune zone n'est produite (« loop »).
+pare-feu (interfaces, VIP) ou de bouclage, sur le port 53, le port 853
+(DNS over TLS), celui d'Unbound ou celui du relais lui-même, aucune zone
+n'est produite (« loop »), quel que soit le protocole de l'amont (DNS clair
+ou DNS over TLS).
+
+Transfert « . » actif (root_forward_active) : entrée « dots » activée sans
+domaine, ou « Use System Nameservers » (unboundplus.forwarding.enabled).
 
 Unbound ne lit le fichier qu'à son démarrage (start.sh le copie dans
 /var/unbound/etc/) : la prise en compte passe par un redémarrage, fait
@@ -139,7 +144,10 @@ def unbound_zones(unbound):
 
 
 def root_forward_active(unbound):
-    """Vrai si une entrée « dots » activée transfère « . » (domaine vide)."""
+    """Vrai si Unbound transfère « . » : « Use System Nameservers » coché
+    (forwarding), ou entrée « dots » activée sans domaine (DoT ou Forward)."""
+    if (unbound or {}).get("forwarding") is True:
+        return True
     for dot in (unbound or {}).get("dots") or ():
         if isinstance(dot, dict) and not norm(dot.get("domain")) and dot.get("enabled") \
                 and dot.get("type") in ("dot", "forward"):
@@ -167,14 +175,18 @@ def local_addresses(unbound):
 
 
 def is_loop(cfg, unbound):
-    """L'amont principal ou de secours est-il ce pare-feu (port 53 ou Unbound) ?"""
+    """L'amont principal ou de secours est-il ce pare-feu ?
+
+    Ports surveillés, quel que soit le protocole de l'amont : 53, 853 (DNS
+    over TLS), celui d'Unbound et celui d'écoute du relais.
+    """
     try:
         port = int((unbound or {}).get("port") or 53)
     except (TypeError, ValueError):
         port = 53
-    ports = {53, port}
+    ports = {53, 853, port, cfg.listen_port}
     mine = local_addresses(unbound)
-    for host, up_port in cfg.upstreams:
+    for host, up_port, _name in cfg.upstreams:
         try:
             ip = ipaddress.ip_address(host)
         except ValueError:

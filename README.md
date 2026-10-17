@@ -42,7 +42,8 @@ Installation par copie, publication et maintenance : voir
 ## Configuration
 
 1. *Services > AppAlias > Settings* : indiquer le résolveur DNS amont (celui
-   que le pare-feu utilisait jusque-là), activer, enregistrer.
+   que le pare-feu utilisait jusque-là), activer, enregistrer. Pour chiffrer
+   aussi les requêtes du relais, voir [DNS over TLS](#dns-over-tls-vers-lamont).
 2. **Unbound, mode automatique (opt-in)** : cocher *Forward application
    domains from Unbound* dans *Settings*. **Apply** écrit alors une zone de
    transfert par domaine des applications activées
@@ -91,6 +92,43 @@ Installation par copie, publication et maintenance : voir
 L'interface du plugin est en anglais (textes source OPNsense) ; les
 traductions viennent du projet de traduction d'OPNsense.
 
+## DNS over TLS vers l'amont
+
+Par défaut, le relais interroge son amont en DNS clair. Si Unbound fait déjà
+du DNS over TLS pour « . », les domaines des applications, qui passent par le
+relais, partent eux en clair : réglez le relais en DNS over TLS (RFC 7858)
+pour tout chiffrer. Dans *Settings*, recommandé avec Quad9 :
+
+| Réglage            | Valeur                          |
+|--------------------|---------------------------------|
+| Upstream resolver  | `9.9.9.9`                       |
+| Upstream protocol  | DNS over TLS                    |
+| Upstream port      | `853`                           |
+| Upstream TLS name  | `dns.quad9.net`                 |
+| Fallback upstreams | `149.112.112.112#dns.quad9.net` |
+
+- Le port n'est pas modifié automatiquement : passez-le de 53 à 853.
+  *Settings* le signale s'il est resté à 53.
+- Le certificat de l'amont est toujours vérifié (magasin de CA du système,
+  `/usr/local/etc/ssl/cert.pem`, le même que celui d'Unbound), ainsi que son
+  nom (*Upstream TLS name*, aussi envoyé en SNI). TLS 1.2 au minimum.
+- **Jamais de repli en clair** : en cas d'échec (certificat, nom, délai), le
+  relais essaie l'amont de secours suivant, puis répond SERVFAIL. Chaque
+  échec est journalisé en avertissement, une fois par minute au plus pour un
+  même amont et une même raison.
+- Amonts de secours : `ip`, `ip:port`, `[ipv6]` ou `[ipv6]:port`, suivis
+  éventuellement de `#nom-tls` (syntaxe d'Unbound). Port par défaut : 53 en
+  DNS clair, 853 en DNS over TLS ; nom par défaut : celui de l'amont
+  principal.
+- Les connexions TLS sont persistantes (8 au plus par amont, une requête à
+  la fois par connexion, fermées après 30 s d'inactivité) : pas de poignée de
+  main par requête.
+- Une réponse plus grande que ce qu'accepte un client UDP (taille EDNS, 512
+  octets sans EDNS) lui est rendue tronquée : il la redemande en TCP. Les
+  adresses sont ajoutées à l'alias dès la première réponse.
+- *Settings* affiche « Upstream: DNS over TLS (dns.quad9.net) » ou
+  « Upstream: plain DNS ».
+
 ## Catalogue
 
 L'onglet *Catalog* cherche dans un instantané embarqué de
@@ -126,22 +164,40 @@ défaut, pour faire passer une application par un VPN :
 | Action | Famille | Source  | Destination | Passerelle     |
 |--------|---------|---------|-------------|----------------|
 | Pass   | IPv4    | LAN net | `APP_X`     | passerelle VPN |
-| Block  | IPv6    | LAN net | `APP_X`     | -              |
+| Reject | IPv6    | LAN net | `APP_X`     | -              |
 
-La règle IPv6 évite la fuite hors du VPN.
+La règle IPv6 évite la fuite hors du VPN. Elle doit être en **Reject** et non
+en Block : un paquet bloqué est ignoré sans réponse, et le navigateur attend
+un délai d'expiration avant de basculer en IPv4 ; avec Reject, le refus est
+immédiat et la bascule aussi.
+
+## Performances
+
+- Le relais journalise, pour chaque réponse qui ajoute des adresses, le
+  temps de l'amont et celui de pf (`APP_X : ajout de N IP (amont 28 ms, pf
+  12 ms)`). *Settings* affiche la moyenne et le p95 des 256 dernières
+  mesures, par amont et pour pf.
+- Activer **Prefetch Support** dans *Services > Unbound DNS > Advanced* :
+  Unbound rafraîchit les entrées populaires avant leur expiration, la
+  réponse passe par le relais et l'alias reste à jour sans faire attendre le
+  client.
+- Ne **pas** activer **Serve Expired** : Unbound pourrait rendre une adresse
+  expirée, déjà sortie de l'alias, sans passer par le relais ; le trafic vers
+  cette adresse n'est alors plus couvert par vos règles.
 
 ## Limites
 
-- **DoH / DoT** : un client qui résout lui-même en chiffré ne passe pas par
-  le relais.
+- **DoH / DoT des clients** : un client qui résout lui-même en chiffré ne
+  passe pas par le relais (le DNS over TLS du relais vers son amont n'y
+  change rien).
 - **CDN partagés** : une IP peut servir beaucoup de sites ; bloquer ou router
   une application peut en toucher d'autres.
 - **Cache des clients** : une IP déjà en cache sur un poste n'est vue qu'à la
   prochaine résolution.
 - **Écoute** : laisser le relais sur `127.0.0.1` (défaut). Ouvert au LAN, un
   client pourrait remplir les alias jusqu'au plafond par application.
-- **État actuel (0.3)** : catalogue v2fly disponible ; les sources ASN ne
-  sont pas encore utilisées et les règles `keyword:` / `regexp:` restent des
+- **État actuel (0.4)** : catalogue v2fly et DNS over TLS vers l'amont
+  disponibles ; les sources ASN ne sont pas encore utilisées et les règles `keyword:` / `regexp:` restent des
   règles de découverte.
 
 ## Contribuer, sécurité, licence

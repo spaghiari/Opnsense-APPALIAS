@@ -30,9 +30,19 @@ configuré. Dans la réponse, les adresses A/AAAA des noms qui correspondent
 à une application sont ajoutées à la table pf de l'alias External de cette
 application (APP_<NOM>), **avant** que la réponse soit rendue au client.
 
+Amont : DNS clair (UDP pour un client UDP, TCP pour un client TCP) ou DNS
+over TLS (lib/dot.py, connexions persistantes). En DoT, jamais de repli en
+clair : échec TLS = amont suivant, puis SERVFAIL ; une réponse plus grande
+que la taille UDP du client est rendue tronquée (TC=1) pour qu'il réessaie
+en TCP.
+
 Concurrence : tous les appels pfctl d'une table (add, delete, replace,
 flush) sont sérialisés par un verrou asyncio propre à la table, et l'état
 n'est modifié qu'après le succès de l'appel correspondant.
+
+Mesures : temps de l'amont (autour de l'échange) et de pf (autour de
+_add), en mémoire (lib/metrics.py) ; résumé écrit toutes les
+METRICS_INTERVAL secondes dans metrics.json, jamais sur le chemin de réponse.
 
 Signaux : SIGHUP = relecture de config.json et remplacement des tables ;
 SIGTERM/SIGINT = sauvegarde de l'état puis sortie.
@@ -55,6 +65,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from lib import config as cfgmod  # noqa: E402
 from lib import dnswire  # noqa: E402
+from lib import dot  # noqa: E402
+from lib import metrics  # noqa: E402
 from lib import shared  # noqa: E402
 from lib.matcher import Matcher  # noqa: E402
 from lib.pftable import PfError, PfTable, normalize_entry  # noqa: E402
@@ -65,6 +77,9 @@ log = logging.getLogger("appalias")
 UDP_TIMEOUT = 2.0
 TCP_TIMEOUT = 5.0
 TCP_IDLE_TIMEOUT = 10.0
+DOT_TIMEOUT = 3.0           # par amont, poignée de main TLS comprise
+DOT_PRUNE_INTERVAL = 10.0
+METRICS_INTERVAL = 15.0
 SWEEP_INTERVAL = 30.0
 SAVE_INTERVAL = 60.0
 PF_COOLDOWN = 30.0
@@ -164,7 +179,7 @@ class _UdpClient(asyncio.DatagramProtocol):
 # --- relais ---------------------------------------------------------------
 class Relay:
     def __init__(self, cfg, pf, state_path=cfgmod.STATE_PATH, config_path=cfgmod.CONFIG_PATH,
-                 clock=time.time):
+                 clock=time.time, tls_cafile=dot.CA_BUNDLE):
         self.cfg = cfg
         self.pf = pf
         self.state_path = state_path
@@ -175,6 +190,14 @@ class Relay:
         self.apps = {}
         self.udp_timeout = UDP_TIMEOUT
         self.tcp_timeout = TCP_TIMEOUT
+        self.dot_timeout = DOT_TIMEOUT
+        self.tls_cafile = tls_cafile
+        self._tls_context = None
+        self._pools = {}         # Upstream -> dot.DotPool
+        self._dot_log = dot.LogLimiter()
+        self.metrics = metrics.Metrics()
+        self.metrics_path = metrics.path_for(state_path)
+        self._metrics_saved = -1
         self.sweep_interval = SWEEP_INTERVAL
         self.save_interval = SAVE_INTERVAL
         self.pf_cooldown = PF_COOLDOWN
@@ -199,6 +222,39 @@ class Relay:
         self.apps = {a.table: a for a in cfg.apps}
         self.matcher = Matcher({a.table: a.domains for a in cfg.apps if a.enabled},
                                platforms=shared.load(extra=cfg.shared_platforms_extra))
+        self._update_pools(cfg)
+        self.metrics.retain({self._upstream_key(u) for u in cfg.upstreams})
+
+    @staticmethod
+    def _upstream_key(upstream):
+        return "%s@%d" % (upstream.host, upstream.port)
+
+    def _measured(self, upstream, start, timing):
+        ms = (time.monotonic() - start) * 1000.0
+        self.metrics.add_upstream(self._upstream_key(upstream), ms)
+        if timing is not None:
+            timing["upstream_ms"] = ms
+
+    def _update_pools(self, cfg):
+        """Un pool DoT par amont en « dot » ; ceux des amonts retirés sont fermés."""
+        wanted = set(cfg.upstreams) if cfg.upstream_protocol == "dot" else set()
+        for upstream in list(self._pools):
+            if upstream not in wanted:
+                self._pools.pop(upstream).close()
+        if wanted and self._tls_context is None:
+            self._tls_context = dot.make_context(self.tls_cafile)
+        for upstream in wanted:
+            if upstream not in self._pools:
+                self._pools[upstream] = dot.DotPool(upstream, self._tls_context)
+
+    def prune_pools(self):
+        for pool in list(self._pools.values()):
+            pool.prune()
+
+    def close_pools(self):
+        for pool in self._pools.values():
+            pool.close()
+        self._pools = {}
 
     def _dns_entry_ok(self, app, ip):
         return app.family_ok(ip) and not self.cfg.excluded(ip) and not app.covered(ip)
@@ -288,29 +344,73 @@ class Relay:
             log.warning("trop de requêtes simultanées, requête ignorée")
             return None
         async with self._sem:
-            resp = await self.forward(query, proto)
+            stream = self.cfg.upstream_protocol == "dot"
+            timing = {}
+            resp = await self.forward(query, proto, timing)
             if resp is None:
                 return dnswire.make_servfail(query)
             try:
-                await self.process_response(resp, expect=dnswire.question_key(query))
+                await self.process_response(resp, expect=dnswire.question_key(query),
+                                            upstream_ms=timing.get("upstream_ms"))
             except Exception as exc:  # la réponse part quoi qu'il arrive
                 log.error("erreur interne au traitement d'une réponse : %s", exc)
+            if proto == "udp" and stream:
+                # Réponse lue sur un flux : bornée à la taille UDP du client (TC=1 sinon).
+                return dnswire.fit_udp(query, resp)
             return resp
 
-    async def forward(self, query, proto):
-        for host, port in self.cfg.upstreams:
+    async def forward(self, query, proto, timing=None):
+        """Réponse du premier amont qui répond, ou None ; timing["upstream_ms"] si fourni."""
+        if self.cfg.upstream_protocol == "dot":
+            return await self._forward_dot(query, timing)
+        for upstream in self.cfg.upstreams:
+            host, port, _name = upstream
+            start = time.monotonic()
             try:
                 if proto == "tcp":
-                    return await asyncio.wait_for(self._tcp_exchange(query, host, port),
+                    resp = await asyncio.wait_for(self._tcp_exchange(query, host, port),
                                                   self.tcp_timeout)
-                return await asyncio.wait_for(self._udp_exchange(query, host, port),
-                                              self.udp_timeout)
+                else:
+                    resp = await asyncio.wait_for(self._udp_exchange(query, host, port),
+                                                  self.udp_timeout)
+                self._measured(upstream, start, timing)
+                return resp
             except (asyncio.TimeoutError, OSError, ConnectionError,
                     asyncio.IncompleteReadError) as exc:
                 log.debug("amont %s:%s (%s) sans réponse : %r", host, port, proto, exc)
                 continue
         log.warning("aucun amont n'a répondu (%s)", proto)
         return None
+
+    async def _forward_dot(self, query, timing=None):
+        """Amonts DoT dans l'ordre ; jamais de repli en clair."""
+        for upstream in self.cfg.upstreams:
+            pool = self._pools.get(upstream)
+            if pool is None:
+                continue
+            start = time.monotonic()
+            try:
+                resp = await asyncio.wait_for(pool.exchange(query), self.dot_timeout)
+                self._measured(upstream, start, timing)
+                return resp
+            except Exception as exc:  # TLS, délai, connexion : amont suivant
+                self._dot_failed(upstream, exc)
+        self._warn_limited(("dot", "all"), "aucun amont DNS over TLS n'a répondu : SERVFAIL")
+        return None
+
+    def _dot_failed(self, upstream, exc):
+        reason = dot.failure_reason(exc)
+        self._warn_limited((upstream, reason), "amont DNS over TLS %s port %d (%s) : %s"
+                           % (upstream.host, upstream.port, upstream.tls_name, reason))
+
+    def _warn_limited(self, key, message):
+        emit, muted = self._dot_log.check(key)
+        if not emit:
+            log.debug("%s", message)
+            return
+        if muted:
+            message += " (%d fois de plus depuis le message précédent)" % muted
+        log.warning("%s", message)
 
     async def _udp_exchange(self, query, host, port):
         loop = asyncio.get_running_loop()
@@ -363,13 +463,14 @@ class Relay:
             writer.close()
 
     # -- cœur : ajout des IP --
-    async def process_response(self, raw, expect=_UNCHECKED):
+    async def process_response(self, raw, expect=_UNCHECKED, upstream_ms=None):
         """Ajoute les IP de la réponse aux tables concernées.
 
         expect = (id, qname) de la requête (dnswire.question_key) : si la
         réponse ne correspond pas, rien n'est ajouté (l'appelant transmet la
         réponse quand même). expect=None (question de la requête illisible) :
-        rien n'est ajouté. Sans expect : pas de contrôle.
+        rien n'est ajouté. Sans expect : pas de contrôle. upstream_ms : temps
+        de l'amont, repris dans la ligne de journal des ajouts.
         """
         if expect is None:
             log.debug("question de la requête illisible : réponse transmise sans traitement")
@@ -425,18 +526,23 @@ class Relay:
             fut = asyncio.get_running_loop().create_future()
             for ipstr, expiry in new:
                 self._inflight[(table, ipstr)] = (fut, expiry)
-            jobs.append(self._add(table, new, fut))
+            jobs.append(self._add(table, new, fut, upstream_ms))
         if jobs or waits:
             await asyncio.gather(*jobs, *waits, return_exceptions=True)
 
-    async def _add(self, table, new, fut):
+    async def _add(self, table, new, fut, upstream_ms=None):
         ips = [ip for ip, _ in new]
+        start = time.monotonic()
         try:
             async with self._lock(table):
                 if await self._pf(table, self.pf.add, ips):
+                    pf_ms = (time.monotonic() - start) * 1000.0
+                    self.metrics.add_pf(pf_ms)
                     for ipstr, expiry in new:
                         self.state.set(table, ipstr, expiry)
-                    log.info("%s : ajout de %s", table, " ".join(ips))
+                    log.info("%s : ajout de %d IP (amont %s, pf %d ms) : %s", table, len(ips),
+                             "%d ms" % upstream_ms if upstream_ms is not None else "-",
+                             pf_ms, " ".join(ips))
         finally:
             for ipstr, _ in new:
                 self._inflight.pop((table, ipstr), None)
@@ -472,6 +578,16 @@ class Relay:
             self.state.save(self.state_path)
         except OSError as exc:
             log.error("sauvegarde de l'état impossible (%s) : %s", self.state_path, exc)
+
+    def save_metrics(self):
+        """Écrit metrics.json si une mesure a changé depuis la dernière écriture."""
+        if self.metrics.version == self._metrics_saved:
+            return
+        try:
+            metrics.write(self.metrics_path, dict(self.metrics.to_dict(), time=int(time.time())))
+            self._metrics_saved = self.metrics.version
+        except OSError as exc:
+            log.debug("écriture des mesures impossible (%s) : %s", self.metrics_path, exc)
 
     async def _periodic(self, interval, func):
         while True:
@@ -517,7 +633,16 @@ class Relay:
         if (new_cfg.listen_address, new_cfg.listen_port) != old:
             await self.close_listeners()
             await self.open_listeners()
+        self._log_upstream()
         log.info("configuration rechargée (%d applications)", len(self.apps))
+
+    def _log_upstream(self):
+        if self.cfg.upstream_protocol == "dot":
+            log.info("amont en DNS over TLS : %s", ", ".join(
+                "%s@%d#%s" % (u.host, u.port, u.tls_name) for u in self.cfg.upstreams))
+        else:
+            log.info("amont en DNS clair : %s", ", ".join(
+                "%s@%d" % (u.host, u.port) for u in self.cfg.upstreams))
 
     def request_reload(self):
         self.spawn(self.reload())
@@ -534,6 +659,7 @@ class Relay:
         # Tables restaurées AVANT d'ouvrir l'écoute.
         await self.restore_tables()
         await self.open_listeners()
+        self._log_upstream()
         if install_signals:
             for sig, cb in ((getattr(signal, "SIGHUP", None), self.request_reload),
                             (signal.SIGTERM, self.request_stop),
@@ -547,6 +673,8 @@ class Relay:
         periodic = [
             asyncio.ensure_future(self._periodic(self.sweep_interval, self.sweep)),
             asyncio.ensure_future(self._periodic(self.save_interval, self.save_state)),
+            asyncio.ensure_future(self._periodic(DOT_PRUNE_INTERVAL, self.prune_pools)),
+            asyncio.ensure_future(self._periodic(METRICS_INTERVAL, self.save_metrics)),
         ]
         if self.ready is not None:
             self.ready.set()
@@ -558,7 +686,9 @@ class Relay:
             await self.close_listeners()
             for task in list(self._tasks):
                 task.cancel()
+            self.close_pools()
             self.save_state()
+            self.save_metrics()
             log.info("arrêt : état sauvegardé")
 
 

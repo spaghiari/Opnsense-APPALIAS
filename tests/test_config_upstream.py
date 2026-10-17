@@ -20,7 +20,7 @@ class UpstreamVideTests(unittest.TestCase):
 
     def test_desactive_amont_vide_avec_secours(self):
         cfg = cfgmod.from_dict(make(False, "", upstream_fallback=["192.0.2.1:53"]))
-        self.assertEqual(cfg.upstreams, [("192.0.2.1", 53)])
+        self.assertEqual(cfg.upstreams, [("192.0.2.1", 53, None)])
 
     def test_active_amont_vide_leve_configerror(self):
         for value in ("", None, "  "):
@@ -30,7 +30,7 @@ class UpstreamVideTests(unittest.TestCase):
 
     def test_active_amont_renseigne(self):
         cfg = cfgmod.from_dict(make(True, "192.0.2.53", upstream_port=5353))
-        self.assertEqual(cfg.upstreams, [("192.0.2.53", 5353)])
+        self.assertEqual(cfg.upstreams, [("192.0.2.53", 5353, None)])
 
     def test_code_de_sortie_78_si_active_sans_amont(self):
         import json

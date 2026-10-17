@@ -82,6 +82,13 @@
             ubRestartFailed: "{{ lang._('Unbound restart failed:')|escape_js }}",
             ubRestarted: "{{ lang._('Unbound restarted.')|escape_js }}",
             ubSkipped: "{{ lang._('name(s) not forwarded:')|escape_js }}",
+            upDot: "{{ lang._('Upstream: DNS over TLS')|escape_js }}",
+            upPlain: "{{ lang._('Upstream: plain DNS')|escape_js }}",
+            latUpstream: "{{ lang._('Upstream')|escape_js }}",
+            latPf: "{{ lang._('pf')|escape_js }}",
+            latNone: "{{ lang._('no measurement yet')|escape_js }}",
+            latSamples: "{{ lang._('samples')|escape_js }}",
+            upDotPort53: "{{ lang._('DNS over TLS on port 53: DNS over TLS servers listen on port 853 (Quad9: 9.9.9.9, port 853, TLS name dns.quad9.net). Change the upstream port, then Save and apply.')|escape_js }}",
             ubRootWarn: "{{ lang._('While the relay is down, forwarded domains fall back to direct recursion and bypass DNS over TLS (and the . Query Forwarding). If outgoing port 53 is blocked, they fail until the relay is back.')|escape_js }}",
             commit: "{{ lang._('commit')|escape_js }}"
         };
@@ -254,10 +261,49 @@
             }
         });
 
+        // --- Réglages : latences mesurées par le relais (status.py, clé latency) ---
+        function latencyText(label, s) {
+            if (!s || !s.window) {
+                return label + ' ' + T.latNone;
+            }
+            return label + ' avg/p95 ' + Math.round(s.avg_ms) + '/' + Math.round(s.p95_ms) + ' ms (' +
+                parseInt(s.window) + ' ' + T.latSamples + ')';
+        }
+
+        function loadLatency() {
+            ajaxGet('/api/appalias/service/status', {}, function (data, status) {
+                let lat = (data && data.latency) ? data.latency : {};
+                let box = $('#latency-summary').empty().hide();
+                let parts = [];
+                $.each(lat.upstreams || {}, function (key, s) {
+                    parts.push(latencyText(T.latUpstream + ' ' + String(key), s));
+                });
+                if (!parts.length && !lat.pf) {
+                    return;
+                }
+                if (!parts.length) {
+                    parts.push(latencyText(T.latUpstream, null));
+                }
+                parts.push(latencyText(T.latPf, lat.pf));
+                box.text(parts.join(', ')).show();
+            });
+        }
+
         // --- Réglages : état du branchement d'Unbound ---
         function loadUnboundStatus() {
+            loadLatency();
             ajaxGet('/api/appalias/service/unboundStatus', {}, function (data, status) {
                 data = data || {};
+                let upstream = $('#upstream-summary').empty().hide();
+                let upWarn = $('#upstream-port-warning').empty().hide();
+                if (data.upstream_protocol === 'dot') {
+                    upstream.text(T.upDot + (data.upstream_tls_name ? ' (' + String(data.upstream_tls_name) + ')' : '')).show();
+                    if (parseInt(data.upstream_port) === 53) {
+                        upWarn.text(T.upDotPort53).show();
+                    }
+                } else if (data.upstream_protocol === 'dns') {
+                    upstream.text(T.upPlain).show();
+                }
                 let summary = $('#unbound-summary').empty();
                 if (data.active === undefined) {
                     summary.text(T.ubUnknown);
@@ -647,6 +693,7 @@
                 diffUuid = uuid;
                 $('#catalog-diff-title').text(String(d.name || '') + ' - v2fly: ' + (d.refs || []).join(', '));
                 $('#catalog-diff-error').hide().empty();
+                $('#catalog-diff-warning').hide().empty();
                 if (d.error) {
                     $('#catalog-diff-error').text(T.catalogError + ' ' + d.error).show();
                 }
@@ -654,7 +701,7 @@
                 renderDiffList($('#catalog-diff-removed'), d.removed || [], '-');
                 let refused = d.refused || [];
                 if (refused.length) {
-                    $('#catalog-diff-error').text(T.diffRefused + ' ' + refused.join(', ')).show();
+                    $('#catalog-diff-warning').text(T.diffRefused + ' ' + refused.join(', ')).show();
                 }
                 let custom = d.custom || [];
                 $('#catalog-diff-custom').text(T.custom + ' ' + custom.length);
@@ -783,6 +830,9 @@
             <div id="unbound-status" class="panel panel-default" style="margin-top: 10px">
                 <div class="panel-heading"><strong>{{ lang._('Unbound forwarding') }}</strong></div>
                 <div class="panel-body">
+                    <p id="upstream-summary" style="display: none"></p>
+                    <p id="latency-summary" class="text-muted" style="display: none"></p>
+                    <div id="upstream-port-warning" class="alert alert-warning" style="display: none" role="alert"></div>
                     <p id="unbound-summary" class="text-muted"></p>
                     <div id="unbound-root-warning" class="alert alert-warning" style="display: none" role="alert"></div>
                     <div id="unbound-errors" class="alert alert-warning" style="display: none" role="alert"></div>
@@ -842,6 +892,12 @@
                 <li>
                     In the <i>Settings</i> tab, enter the real <b>upstream resolver</b> (the one used before). Never enter
                     the local resolver itself: queries would loop.
+                </li>
+                <li>
+                    To encrypt the queries of the relay too, select <b>DNS over TLS</b> as upstream protocol, for
+                    example Quad9: resolver <code>9.9.9.9</code>, port <code>853</code>, TLS name
+                    <code>dns.quad9.net</code>, fallback <code>149.112.112.112#dns.quad9.net</code>. The relay never
+                    falls back to plain DNS.
                 </li>
             </ul>
 
@@ -942,6 +998,7 @@
             </div>
             <div class="modal-body">
                 <div id="catalog-diff-error" class="alert alert-danger" style="display: none" role="alert"></div>
+                <div id="catalog-diff-warning" class="alert alert-warning" style="display: none" role="alert"></div>
                 <h4>
                     {{ lang._('New in the catalog') }}
                     <small><a href="#" class="appalias-diff-all" data-target="catalog-diff-added">{{ lang._('select all') }}</a></small>

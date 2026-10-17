@@ -26,7 +26,10 @@
 """État d'os-appalias au format JSON (action configd « appalias status »).
 
 Sans argument : état du démon et, par application, nombre d'IP v4/v6 dans
-la table pf, dernière correspondance (last_hit) et dernière erreur.
+la table pf, dernière correspondance (last_hit) et dernière erreur ;
+« latency » : mesures du démon (metrics.json, à côté de l'état), temps de
+l'amont par amont et de pf, nombre, moyenne et p95 sur les 256 dernières
+mesures. Le démon les écrit toutes les 15 s au plus : léger décalage possible.
 
 « --show <table> » : contenu d'une table gérée (action « appalias table_show »).
 Le nom est validé et doit appartenir à une application configurée.
@@ -41,6 +44,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from lib import config as cfgmod  # noqa: E402
+from lib import metrics  # noqa: E402
 from lib.pftable import PfError, PfTable, valid_table  # noqa: E402
 from lib.state import State  # noqa: E402
 
@@ -70,7 +74,7 @@ def count_families(entries):
 
 
 def status(config_path, state_path, pf):
-    out = {"status": "stopped", "pid": None, "apps": {}, "error": None}
+    out = {"status": "stopped", "pid": None, "apps": {}, "error": None, "latency": {}}
     try:
         cfg = cfgmod.load(config_path)
     except cfgmod.ConfigError as exc:
@@ -83,6 +87,7 @@ def status(config_path, state_path, pf):
     elif not cfg.enabled:
         out["status"] = "disabled"
     state = State.load(state_path)
+    out["latency"] = metrics.read(metrics.path_for(state_path))
     for app in cfg.apps:
         item = {
             "uuid": app.uuid,

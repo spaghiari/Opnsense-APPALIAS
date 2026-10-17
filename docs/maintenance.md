@@ -230,6 +230,35 @@ installation (`tools/install-copy.sh`) :
     services) n'appelle pas `plugins_configure` ; Unbound recharge alors le
     fichier tel qu'écrit au dernier Apply d'AppAlias (ou au dernier événement
     `dns` / `unbound_start`).
+11. DNS over TLS vers l'amont (0.4). Config 0.3 existante : la page se
+    charge, le modèle passe en 0.3.0, *Upstream protocol* vaut « Plain DNS »
+    et rien ne change. Puis régler `9.9.9.9`, protocole *DNS over TLS*,
+    port `853`, nom `dns.quad9.net`, secours `149.112.112.112#dns.quad9.net`,
+    puis *Save and apply*. Vérifier :
+    - validation : *DNS over TLS* sans nom TLS refusé ; secours
+      `149.112.112.112` (sans port), `[2620:fe::fe]`, `[2620:fe::fe]:853`,
+      `192.0.2.1#dns.quad9.net` acceptés ; `192.0.2.1:`, `host.example`,
+      `192.0.2.1#bad name` refusés ;
+    - `config.json` contient `upstream_protocol`, `upstream_tls_name` et
+      `unbound.forwarding` ; l'encadré de *Settings* affiche « Upstream: DNS
+      over TLS (dns.quad9.net) », et l'avertissement du port 53 si le port est
+      resté à 53 ;
+    - `tcpdump -ni <wan> host 9.9.9.9 and port 53` ne montre rien pendant
+      qu'un domaine d'application est résolu ; `port 853` montre une connexion
+      réutilisée (pas une poignée de main par requête) ;
+    - `drill @127.0.0.1 -p 53535 <domaine>` répond, l'alias se remplit, le
+      journal montre `APP_X : ajout de N IP (amont .. ms, pf .. ms)` ;
+    - nom TLS faux (`dns.example.invalid`) : SERVFAIL, un avertissement
+      « certificat refusé » par minute au plus, jamais de requête en clair sur
+      le port 53 (tcpdump) ; idem amont injoignable : bascule sur le secours ;
+    - grosse réponse en UDP (`drill @127.0.0.1 -p 53535 -b 512 TXT <nom>`) :
+      réponse tronquée (TC), puis `drill -t` en TCP : réponse complète ;
+    - `configctl appalias status` : clé `latency` (par amont et `pf` :
+      `count`, `avg_ms`, `p95_ms`), affichée dans *Settings* ;
+    - *Use System Nameservers* coché dans Unbound : avertissement de transfert
+      « . » affiché dans *Settings* après Apply ;
+    - catalogue : règles refusées d'un diff affichées en orange
+      (`alert-warning`).
 
 ## Rotation de clé
 

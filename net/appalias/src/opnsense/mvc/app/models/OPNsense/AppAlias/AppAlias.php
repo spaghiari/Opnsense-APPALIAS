@@ -253,18 +253,53 @@ class AppAlias extends BaseModel
     }
 
     /**
-     * Vrai si « ip:port » ou « [ipv6]:port ».
+     * Vrai si $name est un nom d'hôte (labels LDH, 253 caractères au plus,
+     * point final toléré) ou une adresse IP : nom TLS d'un amont.
      */
-    private static function validHostPort($item)
+    public static function validTlsName($name)
     {
-        if (preg_match('/^\[([0-9a-f:.]+)\]:([0-9]{1,5})$/i', $item, $m)) {
-            $ok = filter_var($m[1], FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false;
-        } elseif (preg_match('/^([0-9.]+):([0-9]{1,5})$/', $item, $m)) {
-            $ok = filter_var($m[1], FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false;
-        } else {
+        $name = trim((string)$name);
+        if ($name === '') {
             return false;
         }
-        return $ok && (int)$m[2] >= 1 && (int)$m[2] <= 65535;
+        if (filter_var($name, FILTER_VALIDATE_IP) !== false) {
+            return true;
+        }
+        $name = rtrim($name, '.');
+        $label = '[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?';
+        return strlen($name) > 0 && strlen($name) <= 253 &&
+            preg_match('/^(' . $label . '\.)*' . $label . '$/i', $name) === 1;
+    }
+
+    /**
+     * Vrai si l'amont de secours est valide : « ip », « ip:port », « [ipv6] »,
+     * « [ipv6]:port » ou IPv6 nue, suivi éventuellement de « #nom-tls »
+     * (syntaxe à la Unbound). Sans port, celui du protocole est employé.
+     */
+    private static function validUpstream($item)
+    {
+        $item = trim((string)$item);
+        $hash = strpos($item, '#');
+        if ($hash !== false) {
+            if (!self::validTlsName(substr($item, $hash + 1))) {
+                return false;
+            }
+            $item = substr($item, 0, $hash);
+        }
+        $port = null;
+        if (preg_match('/^\[([0-9a-f:.]+)\](?::([0-9]{1,5}))?$/i', $item, $m)) {
+            $ok = filter_var($m[1], FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false;
+            $port = isset($m[2]) ? $m[2] : null;
+        } elseif (preg_match('/^([0-9.]+)(?::([0-9]{1,5}))?$/', $item, $m)) {
+            $ok = filter_var($m[1], FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false;
+            $port = isset($m[2]) ? $m[2] : null;
+        } else {
+            $ok = filter_var($item, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false;
+        }
+        if ($ok && $port !== null && $port !== '') {
+            $ok = (int)$port >= 1 && (int)$port <= 65535;
+        }
+        return $ok;
     }
 
     /**
@@ -275,14 +310,46 @@ class AppAlias extends BaseModel
         $messages = parent::performValidation($validateFullModel);
 
         $general = $this->general;
-        if ($validateFullModel || $general->upstream_fallback->isFieldChanged()) {
+        $dot = (string)$general->upstream_protocol === 'dot';
+        $tlsName = trim((string)$general->upstream_tls_name);
+        if (
+            $validateFullModel ||
+            $general->upstream_fallback->isFieldChanged() ||
+            $general->upstream_protocol->isFieldChanged() ||
+            $general->upstream_tls_name->isFieldChanged()
+        ) {
             foreach (self::splitList($general->upstream_fallback) as $item) {
-                if (!self::validHostPort($item)) {
+                if (!self::validUpstream($item)) {
                     $messages->appendMessage(new Message(
-                        sprintf(gettext('Invalid fallback upstream: %s (expected ip:port or [ipv6]:port).'), $item),
+                        sprintf(
+                            gettext(
+                                'Invalid fallback upstream: %s (expected ip, ip:port, [ipv6] or [ipv6]:port, ' .
+                                'optionally followed by #tls-name).'
+                            ),
+                            $item
+                        ),
                         $general->upstream_fallback->__reference
                     ));
                 }
+            }
+        }
+
+        // DNS over TLS : nom TLS obligatoire (certificat vérifié, SNI).
+        if (
+            $validateFullModel ||
+            $general->upstream_protocol->isFieldChanged() ||
+            $general->upstream_tls_name->isFieldChanged()
+        ) {
+            if ($dot && $tlsName === '') {
+                $messages->appendMessage(new Message(
+                    gettext('A TLS name is required with DNS over TLS, for example dns.quad9.net.'),
+                    $general->upstream_tls_name->__reference
+                ));
+            } elseif ($tlsName !== '' && !self::validTlsName($tlsName)) {
+                $messages->appendMessage(new Message(
+                    sprintf(gettext('Invalid TLS name: %s'), $tlsName),
+                    $general->upstream_tls_name->__reference
+                ));
             }
         }
 

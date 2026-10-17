@@ -55,6 +55,9 @@ $out = [
         'listen_port' => (int)(string)$gen->listen_port,
         'upstream_address' => (string)$gen->upstream_address,
         'upstream_port' => (int)(string)$gen->upstream_port,
+        // valeur vide (config 0.3) = DNS clair
+        'upstream_protocol' => (string)$gen->upstream_protocol !== '' ? (string)$gen->upstream_protocol : 'dns',
+        'upstream_tls_name' => trim((string)$gen->upstream_tls_name),
         'upstream_fallback' => AppAlias::splitList($gen->upstream_fallback),
         'follow_cname' => (string)$gen->follow_cname == '1',
         'ttl_min' => (int)(string)$gen->ttl_min,
@@ -91,9 +94,17 @@ foreach ($mdl->apps->app->iterateItems() as $uuid => $app) {
  * OPNsense\Unbound\Unbound) utile au dédoublonnage des zones de transfert
  * (lib/unboundfwd.py) : entrées dots (Query Forwarding et DNS over TLS),
  * noms locaux (domaine du système, host overrides, alias, anciens overrides),
- * et adresses du pare-feu (détection de boucle sur l'amont du relais).
+ * adresses du pare-feu (détection de boucle sur l'amont du relais) et
+ * « Use System Nameservers » (forwarding.enabled, transfert « . »).
  */
-$unbound = ['enabled' => false, 'port' => 53, 'dots' => [], 'local_domains' => [], 'local_addresses' => []];
+$unbound = [
+    'enabled' => false,
+    'port' => 53,
+    'forwarding' => false,
+    'dots' => [],
+    'local_domains' => [],
+    'local_addresses' => [],
+];
 
 /* Adresses IPv4 et IPv6 de toutes les interfaces, VIP comprises (méthode du core). */
 foreach (legacy_interfaces_details() as $ifname => $ifdata) {
@@ -116,6 +127,7 @@ if (isset($cfg->OPNsense->unboundplus)) {
     if (isset($ub->general->port) && (string)$ub->general->port !== '') {
         $unbound['port'] = (int)(string)$ub->general->port;
     }
+    $unbound['forwarding'] = isset($ub->forwarding->enabled) && (string)$ub->forwarding->enabled == '1';
     if (isset($ub->dots->dot)) {
         foreach ($ub->dots->dot as $dot) {
             $unbound['dots'][] = [

@@ -1,6 +1,6 @@
 <model>
     <mount>//OPNsense/appalias</mount>
-    <version>0.2.0</version>
+    <version>0.3.0</version>
     <description>AppAlias: one External pf alias per application, filled by the appaliasd DNS relay</description>
     <items>
         <general>
@@ -29,6 +29,19 @@
                 <Default>53</Default>
                 <Required>Y</Required>
             </upstream_port>
+            <upstream_protocol type="OptionField">
+                <Default>dns</Default>
+                <Required>Y</Required>
+                <OptionValues>
+                    <dns>Plain DNS (UDP/TCP)</dns>
+                    <dot>DNS over TLS (RFC 7858)</dot>
+                </OptionValues>
+            </upstream_protocol>
+            <upstream_tls_name type="TextField">
+                <Required>N</Required>
+                <Mask>/^(([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.?)?$/</Mask>
+                <ValidationMessage>Enter the host name of the upstream certificate, for example dns.quad9.net.</ValidationMessage>
+            </upstream_tls_name>
             <upstream_fallback type="CSVListField">
                 <Required>N</Required>
             </upstream_fallback>

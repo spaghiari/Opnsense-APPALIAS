@@ -24,9 +24,22 @@
         <help>IP address of the resolver the relay forwards every query to, unchanged. Required when the service is enabled.</help>
     </field>
     <field>
+        <id>appalias.general.upstream_protocol</id>
+        <label>Upstream protocol</label>
+        <type>dropdown</type>
+        <help>Plain DNS, or DNS over TLS (RFC 7858) to encrypt the queries of the application domains up to the upstream. With DNS over TLS the certificate and its name are always checked, and the relay never falls back to plain DNS: on failure it tries the next fallback upstream, then answers SERVFAIL. Example (Quad9): resolver 9.9.9.9, port 853, TLS name dns.quad9.net.</help>
+    </field>
+    <field>
         <id>appalias.general.upstream_port</id>
         <label>Upstream port</label>
         <type>text</type>
+        <help>53 for plain DNS. DNS over TLS uses port 853: change the value to 853 when you select it (it is not changed automatically).</help>
+    </field>
+    <field>
+        <id>appalias.general.upstream_tls_name</id>
+        <label>Upstream TLS name</label>
+        <type>text</type>
+        <help>DNS over TLS only, required: name checked in the certificate of the upstream and sent as SNI, for example dns.quad9.net for 9.9.9.9. Also used by the fallback upstreams without their own #name.</help>
     </field>
     <field>
         <id>appalias.general.upstream_fallback</id>
@@ -34,7 +47,7 @@
         <type>select_multiple</type>
         <style>tokenize</style>
         <allownew>true</allownew>
-        <help>List of ip:port (or [ipv6]:port) tried in order when the main upstream does not answer.</help>
+        <help>Tried in order when the main upstream does not answer, with the same protocol. Format: ip, ip:port, [ipv6] or [ipv6]:port, optionally followed by #tls-name (DNS over TLS). Default port: 53 (plain DNS) or 853 (DNS over TLS); default TLS name: the one of the main upstream. Example: 149.112.112.112#dns.quad9.net.</help>
     </field>
     <field>
         <id>appalias.general.unbound_autoforward</id>

@@ -18,6 +18,29 @@ WWW: https://github.com/spaghiari/Opnsense-APPALIAS
 Plugin Changelog
 ================
 
+0.4
+
+* DNS over TLS (RFC 7858) to the upstream: new Upstream protocol (plain
+  DNS by default) and Upstream TLS name settings. The certificate and its
+  name are always checked (system CA bundle, TLS 1.2 at least) and the relay
+  never falls back to plain DNS: on failure it tries the next fallback
+  upstream, then answers SERVFAIL. Persistent connections per upstream (one
+  query at a time per connection, bounded pool, 30 s idle timeout). An
+  answer larger than the UDP size of the client is returned truncated
+  (TC=1) so that the client retries over TCP. TLS failures are logged as
+  warnings, rate limited. Example: 9.9.9.9, port 853, dns.quad9.net.
+* Fallback upstreams: ip, ip:port, [ipv6] and [ipv6]:port, with an optional
+  #tls-name suffix; default port 53 (plain DNS) or 853 (DNS over TLS). An
+  address without port (149.112.112.112) is no longer refused.
+* Latency measurements: one info log line per answer that adds addresses
+  (upstream and pf time), average and p95 per upstream and for pf over the
+  last 256 measurements in the status and in Settings.
+* Unbound forwarding: the loop check also covers port 853 and the relay
+  port, whatever the upstream protocol; "Use System Nameservers" is
+  detected as a "." forward.
+* Catalog updates: refused new rules are shown as a warning, not an error.
+* Model 0.3.0: upstream_protocol and upstream_tls_name.
+
 0.3
 
 * Catalog tab: search, preview and import of the lists of an embedded

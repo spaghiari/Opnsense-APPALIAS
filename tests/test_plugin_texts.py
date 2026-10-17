@@ -1,5 +1,5 @@
 """Contrôles statiques du plugin : textes source en anglais (ASCII), XML bien
-formés, champs du modèle 0.3, actions configd du catalogue."""
+formés, champs du modèle 0.3.0 (plugin 0.4), actions configd du catalogue."""
 
 import configparser
 import glob
@@ -55,7 +55,8 @@ class TextTests(unittest.TestCase):
             for node in root.iter():
                 if node.tag in ("label", "help", "ValidationMessage", "description", "name") or \
                         (node.text and node.tag in ("error", "warning", "info", "debug", "manual",
-                                                    "catalog", "v2fly", "both", "inet", "inet6")):
+                                                    "catalog", "v2fly", "both", "inet", "inet6",
+                                                    "dns", "dot")):
                     self.assertTrue((node.text or "").isascii(), "%s : <%s>" % (path, node.tag))
                 for key, value in node.attrib.items():
                     self.assertTrue(value.isascii(), "%s : %s=%s" % (path, key, value))
@@ -69,7 +70,17 @@ class ModelTests(unittest.TestCase):
         self.root = ET.parse(os.path.join(MODEL_DIR, "AppAlias.xml")).getroot()
 
     def test_version_and_fields(self):
-        self.assertEqual(self.root.findtext("version"), "0.2.0")
+        self.assertEqual(self.root.findtext("version"), "0.3.0")
+        proto = self.root.find("items/general/upstream_protocol")
+        self.assertEqual((proto.get("type"), proto.findtext("Default")), ("OptionField", "dns"))
+        self.assertEqual(sorted(c.tag for c in proto.find("OptionValues")), ["dns", "dot"])
+        name = self.root.find("items/general/upstream_tls_name")
+        self.assertEqual((name.get("type"), name.findtext("Required")), ("TextField", "N"))
+        mask = re.compile(name.findtext("Mask")[1:-1])
+        for ok in ("", "dns.quad9.net", "dns.quad9.net.", "DOT-1.example"):
+            self.assertIsNotNone(mask.match(ok), ok)
+        for bad in ("-a.example", "a..b", "x y", "dns.quad9.net#x"):
+            self.assertIsNone(mask.match(bad), bad)
         app = self.root.find("items/apps/app")
         for name in ("catalog_refs", "catalog_rules", "catalog_revision"):
             field = app.find(name)
@@ -94,6 +105,29 @@ class ModelTests(unittest.TestCase):
         text = read(os.path.join(SRC, "opnsense", "scripts", "OPNsense", "AppAlias", "export_config.php"))
         self.assertIn("'catalog_refs' =>", text)
         self.assertIn("'shared_platforms_extra' =>", text)
+        self.assertIn("'upstream_protocol' =>", text)
+        self.assertIn("'upstream_tls_name' =>", text)
+        # « Use System Nameservers » d'Unbound (modèle Unbound du core, stable/26.7)
+        self.assertIn("$ub->forwarding->enabled", text)
+
+    def test_settings_form_dot_fields(self):
+        root = ET.parse(os.path.join(FORMS, "general.xml")).getroot()
+        ids = [f.findtext("id") for f in root.findall("field")]
+        for name in ("upstream_protocol", "upstream_tls_name"):
+            self.assertIn("appalias.general." + name, ids)
+        helps = " ".join(f.findtext("help") or "" for f in root.findall("field"))
+        self.assertIn("dns.quad9.net", helps)
+        self.assertIn("853", helps)
+
+    def test_volt_diff_refused_is_warning(self):
+        volt = read(os.path.join(MVC, "views", "OPNsense", "AppAlias", "index.volt"))
+        self.assertIn('<div id="catalog-diff-warning" class="alert alert-warning"', volt)
+        self.assertIn("$('#catalog-diff-warning').text(T.diffRefused", volt)
+        self.assertNotIn("$('#catalog-diff-error').text(T.diffRefused", volt)
+
+    def test_plugin_version(self):
+        self.assertRegex(read(os.path.join(PLUGIN, "Makefile")), r"PLUGIN_VERSION=\s+0\.4\n")
+        self.assertIn("\n0.4\n", read(os.path.join(PLUGIN, "pkg-descr")))
 
 
 class ActionTests(unittest.TestCase):

@@ -1,0 +1,44 @@
+Certificats et clé de TEST, réservés aux tests (tests/test_dot.py) : ne
+jamais les utiliser ailleurs. La clé privée est publique, puisqu'elle est
+commitée ; aucun de ces fichiers n'est empaqueté dans le plugin.
+
+- ca.pem : CA de test « os-appalias TEST CA (tests only) ». Sa clé n'a pas
+  été conservée.
+- dot.test.pem / dot.test.key : certificat du faux serveur DoT, signé par
+  ca.pem, SAN DNS:dot.test, EC P-256, valable 100 ans.
+- other-ca.pem : une autre CA de test (clé non conservée), pour le cas
+  « CA inconnue ».
+
+Générés une fois avec OpenSSL 3 (extensions compatibles avec
+VERIFY_X509_STRICT, actif par défaut depuis Python 3.13) :
+
+  cat > ca.cnf <<'EOF'
+  [req]
+  distinguished_name = dn
+  prompt = no
+  x509_extensions = v3_ca
+  [dn]
+  CN = os-appalias TEST CA (tests only)
+  [v3_ca]
+  basicConstraints = critical, CA:TRUE
+  keyUsage = critical, keyCertSign, cRLSign
+  subjectKeyIdentifier = hash
+  EOF
+  cat > leaf.ext <<'EOF'
+  basicConstraints = critical, CA:FALSE
+  keyUsage = critical, digitalSignature
+  extendedKeyUsage = serverAuth
+  subjectAltName = DNS:dot.test
+  subjectKeyIdentifier = hash
+  authorityKeyIdentifier = keyid
+  EOF
+  openssl req -x509 -new -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes \
+      -keyout ca.key -out ca.pem -days 36500 -config ca.cnf -sha256
+  openssl req -x509 -new -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes \
+      -keyout other.key -out other-ca.pem -days 36500 -config ca.cnf -sha256 \
+      -subj "/CN=os-appalias OTHER TEST CA (tests only)"
+  openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes \
+      -keyout dot.test.key -out leaf.csr -subj "/CN=dot.test"
+  openssl x509 -req -in leaf.csr -CA ca.pem -CAkey ca.key -CAcreateserial \
+      -out dot.test.pem -days 36500 -sha256 -extfile leaf.ext
+  rm ca.key other.key ca.srl leaf.csr ca.cnf leaf.ext
