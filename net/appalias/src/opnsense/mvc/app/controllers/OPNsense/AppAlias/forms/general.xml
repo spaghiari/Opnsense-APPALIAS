@@ -56,6 +56,33 @@
         <help>Unbound sends only the domains of the enabled applications to the relay, one forward zone per domain (file /usr/local/etc/unbound.opnsense.d/appalias.conf). Other queries keep their usual path (DNS over TLS, Query Forwarding). Names already configured in Unbound (Query Forwarding, DNS over TLS, domain overrides) and local names are skipped. Applying restarts Unbound when the list of forwarded domains changes. Each zone uses forward-first: while the relay is down, Unbound falls back to direct recursion to the authoritative servers for these domains (plain DNS on UDP/TCP port 53), bypassing DNS over TLS and the "." Query Forwarding; their addresses are not added to the aliases. If outgoing port 53 is blocked, these domains fail (SERVFAIL) until the relay is back. After adding a Query Forwarding entry for a domain also used by AppAlias, press Apply in AppAlias. Leave unchecked to set up the forwarding by hand.</help>
     </field>
     <field>
+        <id>appalias.general.discovery_enabled</id>
+        <label>Discovery</label>
+        <type>checkbox</type>
+        <help>Off by default. The relay counts the DNS names it sees (names only, never which client asked) to suggest rules in the Discovery tab. Nothing is ever added to an application without your validation and Apply. Turning it off erases the collected data.</help>
+    </field>
+    <field>
+        <id>appalias.general.discovery_retention_days</id>
+        <label>Discovery retention (days)</label>
+        <type>text</type>
+        <advanced>true</advanced>
+        <help>Names not seen for this long are forgotten (1 to 90 days, default 7).</help>
+    </field>
+    <field>
+        <id>appalias.general.discovery_max_names</id>
+        <label>Discovery max. names</label>
+        <type>text</type>
+        <advanced>true</advanced>
+        <help>Beyond this, the 10 % weakest names (fewest views, oldest) are forgotten (500 to 50000, default 5000).</help>
+    </field>
+    <field>
+        <id>appalias.general.discovery_window</id>
+        <label>Discovery window (s)</label>
+        <type>text</type>
+        <advanced>true</advanced>
+        <help>Two names seen within this many seconds of each other are counted as seen together (1 to 30 s, default 5).</help>
+    </field>
+    <field>
         <id>appalias.general.follow_cname</id>
         <label>Follow CNAMEs</label>
         <type>checkbox</type>
@@ -99,6 +126,18 @@
         <allownew>true</allownew>
         <advanced>true</advanced>
         <help>Names added to the built-in list of shared platforms (CDN, cloud, hosting). A "domain:" rule equal to one of them, or a parent of one, is refused.</help>
+    </field>
+    <field>
+        <id>appalias.general.catalog_online_update</id>
+        <label>Download catalog updates</label>
+        <type>checkbox</type>
+        <help>On by default: once a day (and after the plugin is installed or upgraded), the firewall downloads the latest v2fly/domain-list-community from GitHub (api.github.com, codeload.github.com), so GitHub sees the address of the firewall. "Update catalog now" in the Catalog tab does it at once. A download only refreshes the catalog: nothing is applied to your applications, new rules are shown as catalog updates to review. Uncheck to stay offline with the snapshot embedded in the package.</help>
+    </field>
+    <field>
+        <id>appalias.general.catalog_update_schedule</id>
+        <label>Catalog update schedule</label>
+        <type>dropdown</type>
+        <help>Daily (default): a nightly download, at a time derived from the host name (cron job, only while the download option is checked). Manual: only with "Update catalog now".</help>
     </field>
     <field>
         <id>appalias.general.alias_prefix</id>

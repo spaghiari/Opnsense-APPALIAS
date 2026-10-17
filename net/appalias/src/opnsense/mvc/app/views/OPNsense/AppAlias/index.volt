@@ -35,6 +35,10 @@
     .appalias-group-head { margin-top: 12px; }
     .appalias-popular { margin-bottom: 8px; }
     .appalias-popular .btn { margin: 2px 0; }
+    .appalias-proposal { padding: 6px 0; border-bottom: 1px solid #eee; }
+    .appalias-score { display: inline-block; width: 120px; height: 14px; margin: 0; vertical-align: middle; }
+    .appalias-score .progress-bar { font-size: 10px; line-height: 14px; }
+    #appalias-relay-status { margin: 6px 0; }
 </style>
 
 <script>
@@ -91,7 +95,62 @@
             upPort853: "{{ lang._('Port set to 853 for DNS over TLS')|escape_js }}",
             upPort53: "{{ lang._('Port set to 53 for plain DNS')|escape_js }}",
             ubRootWarn: "{{ lang._('While the relay is down, forwarded domains fall back to direct recursion and bypass DNS over TLS (and the . Query Forwarding). If outgoing port 53 is blocked, they fail until the relay is back.')|escape_js }}",
-            commit: "{{ lang._('commit')|escape_js }}"
+            commit: "{{ lang._('commit')|escape_js }}",
+            stRunning: "{{ lang._('Running')|escape_js }}",
+            stStopped: "{{ lang._('Stopped')|escape_js }}",
+            stDisabled: "{{ lang._('Stopped (disabled)')|escape_js }}",
+            stConfigError: "{{ lang._('Config error')|escape_js }}",
+            stPid: "{{ lang._('PID')|escape_js }}",
+            stVersion: "{{ lang._('version')|escape_js }}",
+            stRestart: "{{ lang._('Restart needed: the relay still runs version %s, version %s is installed. Restart AppAlias to use the new code.')|escape_js }}",
+            catEmbedded: "{{ lang._('Embedded snapshot')|escape_js }}",
+            catOnline: "{{ lang._('Downloaded')|escape_js }}",
+            catUpdateTitle: "{{ lang._('Update catalog now')|escape_js }}",
+            catUpdateConfirm: "{{ lang._('Download the latest v2fly catalog from GitHub now? The firewall contacts api.github.com and codeload.github.com. Your applications do not change: new rules appear as catalog updates to review.')|escape_js }}",
+            catUpdated: "{{ lang._('Catalog downloaded:')|escape_js }}",
+            catUnchanged: "{{ lang._('The catalog is already up to date.')|escape_js }}",
+            catAddedLists: "{{ lang._('lists added')|escape_js }}",
+            catRemovedLists: "{{ lang._('lists removed')|escape_js }}",
+            catUpdateFailed: "{{ lang._('Catalog update failed, the previous catalog is kept:')|escape_js }}",
+            catResetTitle: "{{ lang._('Revert to embedded')|escape_js }}",
+            catResetConfirm: "{{ lang._('Delete the downloaded catalog and use the embedded snapshot again?')|escape_js }}",
+            catResetDone: "{{ lang._('The embedded snapshot is used again.')|escape_js }}",
+            dProposals: "{{ lang._('proposals')|escape_js }}",
+            dObserved: "{{ lang._('names observed')|escape_js }}",
+            dUncovered: "{{ lang._('not covered')|escape_js }}",
+            dUnassigned: "{{ lang._('unassigned')|escape_js }}",
+            dDropped: "{{ lang._('events lost')|escape_js }}",
+            dRetention: "{{ lang._('retention (days)')|escape_js }}",
+            dDataAt: "{{ lang._('data at')|escape_js }}",
+            dNoData: "{{ lang._('No data yet: the relay writes its data every 10 minutes, or on Refresh.')|escape_js }}",
+            dNotApplied: "{{ lang._('Discovery is enabled in Settings but not applied yet: click Apply.')|escape_js }}",
+            dNone: "{{ lang._('No proposal.')|escape_js }}",
+            dAccept: "{{ lang._('Accept')|escape_js }}",
+            dAcceptChecked: "{{ lang._('Accept checked')|escape_js }}",
+            dIgnore: "{{ lang._('Ignore')|escape_js }}",
+            dUnignore: "{{ lang._('Stop ignoring')|escape_js }}",
+            dOtherApp: "{{ lang._('Other app...')|escape_js }}",
+            dAddTo: "{{ lang._('Add to...')|escape_js }}",
+            dCreateApp: "{{ lang._('Create app')|escape_js }}",
+            dStrong: "{{ lang._('strong')|escape_js }}",
+            dNew: "{{ lang._('new')|escape_js }}",
+            dCname: "{{ lang._('CNAME')|escape_js }}",
+            dCooc: "{{ lang._('co-occurrence')|escape_js }}",
+            dViews: "{{ lang._('views')|escape_js }}",
+            dSaved: "{{ lang._('Rule saved in the application. Click Apply on the Applications tab.')|escape_js }}",
+            dPurgeTitle: "{{ lang._('Erase discovery data')|escape_js }}",
+            dPurgeConfirm: "{{ lang._('Erase all the names collected by discovery? This cannot be undone.')|escape_js }}",
+            dLearnAny: "{{ lang._('any application')|escape_js }}",
+            dLearnLeft: "{{ lang._('s left')|escape_js }}",
+            dLearnSeen: "{{ lang._('names seen during the last learning session:')|escape_js }}",
+            dNoIgnored: "{{ lang._('No ignored rule.')|escape_js }}",
+            dRegexTimeout: "{{ lang._('Some regexp: rules were skipped (time limit).')|escape_js }}",
+            rCname: "{{ lang._('Same CNAME target as')|escape_js }}",
+            rChain: "{{ lang._('Its CNAME chain goes through')|escape_js }}",
+            rV2fly: "{{ lang._('Listed in the imported v2fly list')|escape_js }}",
+            rCooc: "{{ lang._('Often resolved together with this application')|escape_js }}",
+            rSite: "{{ lang._('Same site as a rule of this application:')|escape_js }}",
+            rRule: "{{ lang._('Matches the discovery rule')|escape_js }}"
         };
         const KIND_LABELS = {
             domain: "{{ lang._('domain: (domain and sub-domains)')|escape_js }}",
@@ -104,6 +163,7 @@
 
         let appStatus = {};
         let catalogDiff = {};
+        let discoveryCounts = {};
         let firstStatus = true;
         let gridLoaded = false;
 
@@ -187,6 +247,12 @@
                                         .text(n + ' ' + T.updates)
                                 );
                             }
+                        }
+                        let nd = parseInt(discoveryCounts[row.uuid] || 0);
+                        if (nd > 0) {
+                            out.append(' ').append(
+                                $('<a href="#" class="appalias-disc-link label label-success"></a>').text(nd + ' ' + T.dProposals)
+                            );
                         }
                         return out.prop('outerHTML');
                     },
@@ -303,6 +369,7 @@
         $("#reconfigureAct").SimpleActionButton({
             onAction: function (data, status) {
                 updateServiceControlUI('appalias');
+                refreshRelayBadge();
                 refreshStatus(true);
                 refreshDiff();
                 if (data && String(data.status || '').toLowerCase().trim() === 'ok') {
@@ -366,6 +433,7 @@
                 if (data.root_forward && parseInt(data.count || 0) > 0) {
                     warn.text(T.ubRootWarn).show();
                 }
+                applyRootWarningClass();
                 let errors = data.errors || [];
                 let box = $('#unbound-errors').empty().hide();
                 if (errors.length) {
@@ -428,6 +496,11 @@
                 box.text('v2fly domain-list-community, ' + T.commit + ' ' + String(data.commit || '').substring(0, 12) +
                     ' (' + String(data.date || '').substring(0, 10) + '), ' + parseInt(data.lists || 0) + ' ' + T.lists +
                     ', MIT License.');
+                let online = data.origin === 'online';
+                $('#catalog-origin').text((online ? T.catOnline : T.catEmbedded) + ' ' +
+                    String(data.date || '').substring(0, 10) + ' (' + String(data.commit || '').substring(0, 7) + ')');
+                $('#catalog-update').toggle(!!data.online_update);
+                $('#catalog-reset').toggle(online);
                 if (!data.integrity) {
                     box.append($('<div class="text-danger"></div>').text(T.integrity));
                 }
@@ -794,18 +867,541 @@
             $('#' + $(this).attr('data-target')).find('input').prop('checked', true);
         });
 
+        // --- État du relais (badge en haut de page) ---
+        let relayRunning = null;
+
+        function applyRootWarningClass() {
+            // Informatif quand le relais tourne, en rouge seulement s'il est arrêté.
+            $('#unbound-root-warning').removeClass('alert-warning alert-info alert-danger')
+                .addClass(relayRunning === false ? 'alert-danger' : 'alert-info');
+        }
+
+        function refreshRelayBadge() {
+            ajaxGet('/api/appalias/service/status', {}, function (data, status) {
+                data = data || {};
+                let state = String(data.status || 'unknown');
+                let badge = $('#appalias-relay-badge').empty();
+                let label = $('<span class="label"></span>');
+                if (data.error) {
+                    label.addClass('label-danger').text(T.stConfigError);
+                    badge.append(label).append(' ').append($('<span class="text-danger"></span>').text(String(data.error)));
+                } else if (state === 'running') {
+                    label.addClass('label-success').text(T.stRunning);
+                    badge.append(label);
+                    let details = [];
+                    if (data.pid) {
+                        details.push(T.stPid + ' ' + parseInt(data.pid));
+                    }
+                    if (data.version) {
+                        details.push(T.stVersion + ' ' + String(data.version));
+                    }
+                    if (details.length) {
+                        badge.append(' ').append($('<span class="text-muted"></span>').text(details.join(', ')));
+                    }
+                } else {
+                    label.addClass('label-default').text(state === 'disabled' ? T.stDisabled : T.stStopped);
+                    badge.append(label);
+                }
+                let restart = $('#appalias-restart-needed').empty().hide();
+                if (data.restart_needed) {
+                    restart.text(T.stRestart.replace('%s', String(data.version || '?'))
+                        .replace('%s', String(data.installed_version || '?'))).show();
+                }
+                relayRunning = !data.error && state === 'running';
+                applyRootWarningClass();
+            });
+        }
+
+        // --- Catalogue : provenance, mise à jour en ligne, retour à l'embarqué ---
+        function catalogResult(data) {
+            let msg = $('#catalog-message').removeClass('alert-info alert-danger alert-warning');
+            if (data && data.result === 'updated') {
+                let text = T.catUpdated + ' ' + parseInt(data.lists || 0) + ' ' + T.lists + ', ' +
+                    parseInt(data.added_count || 0) + ' ' + T.catAddedLists + ', ' +
+                    parseInt(data.removed_count || 0) + ' ' + T.catRemovedLists + '.';
+                msg.addClass('alert-info').text(text);
+                if (data.note) {
+                    msg.append($('<div></div>').text(String(data.note)));
+                }
+            } else if (data && data.result === 'unchanged') {
+                msg.addClass('alert-info').text(T.catUnchanged);
+            } else {
+                msg.addClass('alert-danger').text(T.catUpdateFailed + ' ' + errorText(data));
+            }
+            msg.show();
+        }
+
+        $('#catalog-update').on('click', function () {
+            BootstrapDialog.confirm({
+                title: T.catUpdateTitle,
+                message: T.catUpdateConfirm,
+                type: BootstrapDialog.TYPE_INFO,
+                btnOKLabel: T.catUpdateTitle,
+                callback: function (confirmed) {
+                    if (!confirmed) {
+                        return;
+                    }
+                    $('#catalog-update').prop('disabled', true);
+                    ajaxCall('/api/appalias/catalog/update', {}, function (data, status) {
+                        $('#catalog-update').prop('disabled', false);
+                        catalogResult(data);
+                        loadCatalogInfo();
+                        loadPopular();
+                        refreshDiff();
+                    });
+                }
+            });
+        });
+
+        $('#catalog-reset').on('click', function () {
+            BootstrapDialog.confirm({
+                title: T.catResetTitle,
+                message: T.catResetConfirm,
+                type: BootstrapDialog.TYPE_WARNING,
+                btnOKLabel: T.catResetTitle,
+                callback: function (confirmed) {
+                    if (!confirmed) {
+                        return;
+                    }
+                    ajaxCall('/api/appalias/catalog/reset', {}, function (data, status) {
+                        let msg = $('#catalog-message').removeClass('alert-info alert-danger alert-warning');
+                        if (data && data.result === 'reset') {
+                            msg.addClass('alert-info').text(T.catResetDone);
+                        } else {
+                            msg.addClass('alert-danger').text(T.catalogError + ' ' + errorText(data));
+                        }
+                        msg.show();
+                        loadCatalogInfo();
+                        loadPopular();
+                        refreshDiff();
+                    });
+                }
+            });
+        });
+
+        // --- Découverte ---
+        let discApps = [];
+        let learnTimer = null;
+
+        function loadDiscApps(done) {
+            ajaxCall('/api/appalias/settings/searchApp', {current: 1, rowCount: -1, sort: {name: 'asc'}}, function (data, status) {
+                discApps = ((data && data.rows) || []).map(function (row) {
+                    return {uuid: String(row.uuid), name: String(row.name || '')};
+                });
+                let sel = $('#discovery-learn-app').empty();
+                sel.append($('<option value=""></option>').text(T.dLearnAny));
+                discApps.forEach(function (app) {
+                    sel.append($('<option></option>').attr('value', app.uuid).text(app.name));
+                });
+                if (done) {
+                    done();
+                }
+            });
+        }
+
+        function appSelect(placeholder) {
+            let sel = $('<select class="form-control input-sm" style="display: inline-block; width: auto"></select>');
+            sel.append($('<option value=""></option>').text(placeholder));
+            discApps.forEach(function (app) {
+                sel.append($('<option></option>').attr('value', app.uuid).text(app.name));
+            });
+            return sel;
+        }
+
+        function reasonText(r) {
+            switch (r.code) {
+                case 'cname_neighbor':
+                    return T.rCname + ' ' + String(r.name || '') + ' (' + String(r.target || '') + ')';
+                case 'chain':
+                    return T.rChain + ' ' + String(r.name || '');
+                case 'v2fly_imported':
+                    return T.rV2fly + ' ' + String(r.list || '');
+                case 'cooccurrence':
+                    return T.rCooc + ' (' + parseInt(r.count || 0) + '/' + parseInt(r.views || 0) + ' ' +
+                        T.dViews + ', lift ' + String(r.lift || '') + ')';
+                case 'same_site':
+                    return T.rSite + ' ' + String(r.site || '');
+                case 'keyword':
+                case 'regexp':
+                    return T.rRule + ' ' + String(r.rule || '');
+            }
+            return String(r.code || '');
+        }
+
+        function discMessage(ok, text) {
+            $('#discovery-message').removeClass('alert-info alert-danger')
+                .addClass(ok ? 'alert-info' : 'alert-danger').text(text).show();
+        }
+
+        function acceptRule(name, rule, uuid, done) {
+            ajaxCall('/api/appalias/discovery/accept', {name: name, rule: rule, app_uuid: uuid}, function (data, status) {
+                let ok = data && data.result === 'saved';
+                if (ok) {
+                    $('#appaliasChangeMessage').show();
+                }
+                if (done) {
+                    done(ok, data);
+                } else {
+                    discMessage(ok, ok ? T.dSaved : T.failed + ' ' + errorText(data));
+                    loadDiscovery();
+                    reloadGridIfLoaded();
+                }
+            });
+        }
+
+        function ignoreRule(rule, add) {
+            ajaxCall('/api/appalias/discovery/' + (add ? 'ignore' : 'unignore'), {rule: rule}, function (data, status) {
+                if (!(data && data.result === 'saved')) {
+                    discMessage(false, T.failed + ' ' + errorText(data));
+                }
+                loadDiscovery();
+            });
+        }
+
+        function renderProposal(item) {
+            let row = $('<div class="appalias-proposal"></div>');
+            let check = $('<input type="checkbox" class="appalias-proposal-check"/>').prop('checked', !!item.checked);
+            let head = $('<div></div>').appendTo(row);
+            head.append(check).append(' ').append($('<code></code>').text(String(item.name)));
+            let score = parseInt(item.score || 0);
+            let bar = $('<div class="progress appalias-score"><div class="progress-bar"></div></div>');
+            bar.find('.progress-bar').css('width', Math.min(100, score) + '%')
+                .addClass(item.strong ? 'progress-bar-success' : 'progress-bar-info').text(String(score));
+            head.append(' ').append(bar);
+            let codes = (item.reasons || []).map(function (r) { return r.code; });
+            if (codes.indexOf('cname_neighbor') !== -1 || codes.indexOf('chain') !== -1) {
+                head.append(' ').append($('<span class="label label-primary"></span>').text(T.dCname));
+            }
+            if (codes.indexOf('v2fly_imported') !== -1) {
+                head.append(' ').append($('<span class="label label-info"></span>').text('v2fly'));
+            }
+            if (codes.indexOf('cooccurrence') !== -1) {
+                head.append(' ').append($('<span class="label label-default"></span>').text(T.dCooc));
+            }
+            if (item.strong) {
+                head.append(' ').append($('<span class="label label-success"></span>').text(T.dStrong));
+            }
+            if (item.new) {
+                head.append(' ').append($('<span class="label label-warning"></span>').text(T.dNew));
+            }
+            if (item.shared) {
+                head.append(' ').append($('<span class="label label-danger"></span>').attr('title', T.sharedHelp).text(T.sharedCdn));
+            }
+            head.append(' ').append($('<span class="text-muted"></span>').text(parseInt(item.views || 0) + ' ' + T.dViews));
+            row.append($('<div class="text-muted"></div>').text((item.reasons || []).map(reasonText).join('. ')));
+            let actions = $('<div class="form-inline"></div>').appendTo(row);
+            let ruleSel = $('<select class="form-control input-sm appalias-proposal-rule"></select>');
+            (item.options || [item.rule]).forEach(function (opt) {
+                ruleSel.append($('<option></option>').attr('value', opt).text(opt));
+            });
+            ruleSel.val(item.rule);
+            actions.append(ruleSel).append(' ');
+            let accept = $('<button type="button" class="btn btn-xs btn-primary"></button>').text(T.dAccept);
+            accept.on('click', function () {
+                acceptRule(item.name, String(ruleSel.val()), item.app_uuid);
+            });
+            let ignore = $('<button type="button" class="btn btn-xs btn-default"></button>').text(T.dIgnore);
+            ignore.on('click', function () {
+                ignoreRule(String(ruleSel.val()), true);
+            });
+            let other = appSelect(T.dOtherApp);
+            other.on('change', function () {
+                if ($(this).val()) {
+                    acceptRule(item.name, String(ruleSel.val()), String($(this).val()));
+                }
+            });
+            actions.append(accept).append(' ').append(ignore).append(' ').append(other);
+            row.data('item', item);
+            row.data('rule', ruleSel);
+            return row;
+        }
+
+        function renderProposals(list) {
+            let box = $('#discovery-proposals').empty();
+            if (!list.length) {
+                box.append($('<p class="text-muted"></p>').text(T.dNone));
+                return;
+            }
+            let groups = {};
+            let order = [];
+            list.forEach(function (item) {
+                let key = String(item.app_uuid);
+                if (!groups[key]) {
+                    groups[key] = [];
+                    order.push(key);
+                }
+                groups[key].push(item);
+            });
+            order.forEach(function (key) {
+                let panel = $('<div class="panel panel-default appalias-card"></div>');
+                let heading = $('<div class="panel-heading"></div>').appendTo(panel);
+                heading.append($('<strong></strong>').text(String(groups[key][0].app || '')))
+                    .append(' ').append($('<span class="badge"></span>').text(groups[key].length + ' ' + T.dProposals));
+                let body = $('<div class="panel-body"></div>').appendTo(panel);
+                groups[key].forEach(function (item) {
+                    body.append(renderProposal(item));
+                });
+                let bulk = $('<button type="button" class="btn btn-xs btn-primary"></button>').text(T.dAcceptChecked);
+                bulk.on('click', function () {
+                    let todo = [];
+                    body.find('.appalias-proposal').each(function () {
+                        if ($(this).find('.appalias-proposal-check').prop('checked')) {
+                            todo.push([$(this).data('item'), String($(this).data('rule').val())]);
+                        }
+                    });
+                    let errors = [];
+                    let seen = {};
+                    (function next() {
+                        if (!todo.length) {
+                            discMessage(!errors.length, errors.length ? T.failed + ' ' + errors.join(' ') : T.dSaved);
+                            loadDiscovery();
+                            reloadGridIfLoaded();
+                            return;
+                        }
+                        let pair = todo.shift();
+                        if (seen[pair[1]]) {
+                            next();   // même règle domain: déjà enregistrée pour ce groupe
+                            return;
+                        }
+                        seen[pair[1]] = true;
+                        acceptRule(pair[0].name, pair[1], pair[0].app_uuid, function (ok, data) {
+                            if (!ok) {
+                                errors.push(String(pair[0].name) + ': ' + errorText(data));
+                            }
+                            next();
+                        });
+                    })();
+                });
+                body.append($('<div style="margin-top: 6px"></div>').append(bulk));
+                box.append(panel);
+            });
+        }
+
+        function renderUnassigned(groups) {
+            let box = $('#discovery-unassigned').empty();
+            if (!groups.length) {
+                box.append($('<p class="text-muted"></p>').text(T.dNone));
+                return;
+            }
+            let table = $('<table class="table table-condensed"></table>').appendTo(box);
+            groups.forEach(function (group) {
+                table.append($('<tr class="active"></tr>').append(
+                    $('<td colspan="3"></td>').append($('<strong></strong>').text(String(group.site || '')))
+                        .append(' ').append($('<span class="text-muted"></span>').text(parseInt(group.views || 0) + ' ' + T.dViews))
+                ));
+                (group.names || []).forEach(function (item) {
+                    let name = $('<td></td>').append($('<code></code>').text(String(item.name)));
+                    if (item.new) {
+                        name.append(' ').append($('<span class="label label-warning"></span>').text(T.dNew));
+                    }
+                    if (item.shared) {
+                        name.append(' ').append($('<span class="label label-danger"></span>').text(T.sharedCdn));
+                    }
+                    let v2 = $('<td></td>');
+                    (item.v2fly || []).forEach(function (list) {
+                        let btn = $('<button type="button" class="btn btn-xs btn-default"></button>')
+                            .text(T.dCreateApp + ' v2fly:' + String(list));
+                        btn.on('click', function () {
+                            openPreview(String(list));
+                        });
+                        v2.append(btn).append(' ');
+                    });
+                    let actions = $('<td class="form-inline"></td>');
+                    let add = appSelect(T.dAddTo);
+                    add.on('change', function () {
+                        if ($(this).val()) {
+                            acceptRule(item.name, 'full:' + item.name, String($(this).val()));
+                        }
+                    });
+                    let ignore = $('<button type="button" class="btn btn-xs btn-default"></button>').text(T.dIgnore);
+                    ignore.on('click', function () {
+                        ignoreRule('full:' + item.name, true);
+                    });
+                    actions.append(add).append(' ').append(ignore);
+                    table.append($('<tr></tr>').append(name).append(v2).append(actions));
+                });
+            });
+        }
+
+        function renderIgnored(list) {
+            let box = $('#discovery-ignored').empty();
+            if (!list.length) {
+                box.append($('<p class="text-muted"></p>').text(T.dNoIgnored));
+                return;
+            }
+            list.forEach(function (rule) {
+                let btn = $('<a href="#"></a>').text(T.dUnignore);
+                btn.on('click', function (e) {
+                    e.preventDefault();
+                    ignoreRule(String(rule), false);
+                });
+                box.append($('<div></div>').append($('<code></code>').text(String(rule))).append(' ').append(btn));
+            });
+        }
+
+        function renderLearn(learn) {
+            clearInterval(learnTimer);
+            let active = !!(learn && learn.active);
+            $('#discovery-learn-start').prop('disabled', active);
+            $('#discovery-learn-stop').toggle(active);
+            let countdown = $('#discovery-learn-countdown').empty();
+            let names = $('#discovery-learn-names').empty();
+            if (active) {
+                let left = parseInt(learn.remaining || 0);
+                countdown.text(left + ' ' + T.dLearnLeft);
+                learnTimer = setInterval(function () {
+                    left--;
+                    if (left <= 0) {
+                        clearInterval(learnTimer);
+                        countdown.empty();
+                        // fenêtre écoulée : le relais finit la session, puis écrit ses données
+                        setTimeout(refreshDiscovery, 8000);
+                        return;
+                    }
+                    countdown.text(left + ' ' + T.dLearnLeft);
+                }, 1000);
+            }
+            if (learn && (learn.names || []).length) {
+                names.append($('<p class="text-muted"></p>').text(learn.names.length + ' ' + T.dLearnSeen));
+                let isNew = {};
+                (learn.new || []).forEach(function (n) { isNew[n] = true; });
+                learn.names.slice(0, 200).forEach(function (n) {
+                    let line = $('<div></div>').append($('<code></code>').text(String(n)));
+                    if (isNew[n]) {
+                        line.append(' ').append($('<span class="label label-warning"></span>').text(T.dNew));
+                    }
+                    names.append(line);
+                });
+            }
+        }
+
+        function loadDiscovery() {
+            ajaxGet('/api/appalias/discovery/status', {}, function (st, status) {
+                st = st || {};
+                discoveryCounts = st.counts || {};
+                reloadGridIfLoaded();
+                $('#discovery-off').toggle(!st.enabled);
+                $('#discovery-on').toggle(!!st.enabled);
+                if (!st.enabled) {
+                    return;
+                }
+                let notes = $('#discovery-notes').empty();
+                if (st.error) {
+                    notes.append($('<div class="alert alert-danger"></div>').text(String(st.error)));
+                } else if (!st.exported) {
+                    notes.append($('<div class="alert alert-warning"></div>').text(T.dNotApplied));
+                } else if (!st.data) {
+                    notes.append($('<div class="alert alert-info"></div>').text(T.dNoData));
+                }
+                if (st.regex_timeout) {
+                    notes.append($('<div class="text-warning"></div>').text(T.dRegexTimeout));
+                }
+                let saved = st.saved ? new Date(st.saved * 1000) : null;
+                let hhmm = saved ? ('0' + saved.getHours()).slice(-2) + ':' + ('0' + saved.getMinutes()).slice(-2) : '-';
+                $('#discovery-counters').text(
+                    parseInt(st.observed || 0) + ' ' + T.dObserved + ', ' +
+                    parseInt(st.uncovered || 0) + ' ' + T.dUncovered + ', ' +
+                    parseInt(st.proposals || 0) + ' ' + T.dProposals + ', ' +
+                    parseInt(st.unassigned || 0) + ' ' + T.dUnassigned + ', ' +
+                    parseInt(st.dropped || 0) + ' ' + T.dDropped + ', ' +
+                    T.dRetention + ' ' + parseInt(st.retention_days || 0) + ', ' +
+                    T.dDataAt + ' ' + hhmm
+                );
+                renderLearn(st.learn);
+                renderIgnored(st.ignored || []);
+                ajaxGet('/api/appalias/discovery/proposals', {}, function (data, status) {
+                    renderProposals((data && data.proposals) || []);
+                });
+                ajaxGet('/api/appalias/discovery/unassigned', {}, function (data, status) {
+                    renderUnassigned((data && data.groups) || []);
+                });
+            });
+        }
+
+        function refreshDiscovery() {
+            ajaxCall('/api/appalias/discovery/refresh', {}, function (data, status) {
+                // le relais écrit ses données à réception du signal
+                setTimeout(loadDiscovery, 1500);
+            });
+        }
+
+        $('#discovery-refresh').on('click', refreshDiscovery);
+
+        $('#discovery-learn-start').on('click', function () {
+            let payload = {seconds: 120};
+            let app = String($('#discovery-learn-app').val() || '');
+            if (app !== '') {
+                payload.app_uuid = app;
+            }
+            ajaxCall('/api/appalias/discovery/learn', payload, function (data, status) {
+                if (!(data && data.result === 'ok')) {
+                    discMessage(false, T.failed + ' ' + errorText(data));
+                    return;
+                }
+                setTimeout(loadDiscovery, 1500);
+            });
+        });
+
+        $('#discovery-learn-stop').on('click', function () {
+            ajaxCall('/api/appalias/discovery/stopLearn', {}, function (data, status) {
+                setTimeout(loadDiscovery, 1500);
+            });
+        });
+
+        $('#discovery-purge').on('click', function () {
+            BootstrapDialog.confirm({
+                title: T.dPurgeTitle,
+                message: T.dPurgeConfirm,
+                type: BootstrapDialog.TYPE_DANGER,
+                btnOKLabel: T.dPurgeTitle,
+                callback: function (confirmed) {
+                    if (!confirmed) {
+                        return;
+                    }
+                    ajaxCall('/api/appalias/discovery/purge', {}, function (data, status) {
+                        if (!(data && data.result === 'ok')) {
+                            discMessage(false, T.failed + ' ' + errorText(data));
+                        }
+                        setTimeout(loadDiscovery, 1000);
+                    });
+                }
+            });
+        });
+
+        $('#discovery-open-settings').on('click', function () {
+            $('#maintabs a[href="#settings"]').tab('show');
+        });
+
+        $("#grid-apps").on('click', '.appalias-disc-link', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            $('#maintabs a[href="#discovery"]').tab('show');
+        });
+
+        $('#maintabs a[href="#discovery"]').on('shown.bs.tab', function () {
+            loadDiscApps(loadDiscovery);
+        });
+
         updateServiceControlUI('appalias');
+        refreshRelayBadge();
         refreshStatus();
         refreshDiff();
         loadCatalogInfo();
         loadPopular();
         loadUnboundStatus();
+        loadDiscApps(loadDiscovery);
     });
 </script>
+
+<div id="appalias-relay-status">
+    <strong>{{ lang._('Relay') }}</strong> <span id="appalias-relay-badge"></span>
+    <div id="appalias-restart-needed" class="alert alert-warning" style="display: none" role="alert"></div>
+</div>
 
 <ul class="nav nav-tabs" data-tabs="tabs" id="maintabs">
     <li class="active"><a data-toggle="tab" href="#apps">{{ lang._('Applications') }}</a></li>
     <li><a data-toggle="tab" href="#catalog">{{ lang._('Catalog') }}</a></li>
+    <li><a data-toggle="tab" href="#discovery">{{ lang._('Discovery') }}</a></li>
     <li><a data-toggle="tab" href="#settings">{{ lang._('Settings') }}</a></li>
     <li><a data-toggle="tab" href="#howto">{{ lang._('How to use') }}</a></li>
 </ul>
@@ -857,7 +1453,18 @@
 
     <div id="catalog" class="tab-pane fade in">
         <div class="col-md-12">
-            <p id="catalog-info" class="text-muted"></p>
+            <div class="panel panel-default" style="margin-top: 10px">
+                <div class="panel-body">
+                    <strong id="catalog-origin"></strong>
+                    <button type="button" class="btn btn-xs btn-default" id="catalog-update" style="display: none">
+                        {{ lang._('Update catalog now') }}
+                    </button>
+                    <button type="button" class="btn btn-xs btn-default" id="catalog-reset" style="display: none">
+                        {{ lang._('Revert to embedded') }}
+                    </button>
+                    <p id="catalog-info" class="text-muted"></p>
+                </div>
+            </div>
             <div id="catalog-message" class="alert alert-info" style="display: none" role="alert"></div>
             <h3>{{ lang._('Popular apps') }}</h3>
             <div id="catalog-popular"></div>
@@ -874,6 +1481,60 @@
         <div class="col-md-12"><br/></div>
     </div>
 
+    <div id="discovery" class="tab-pane fade in">
+        <div class="col-md-12">
+            <div id="discovery-message" class="alert alert-info" style="display: none; margin-top: 10px" role="alert"></div>
+            <div id="discovery-off" class="panel panel-default" style="display: none; margin-top: 10px">
+                <div class="panel-heading"><strong>{{ lang._('Discovery is off') }}</strong></div>
+                <div class="panel-body">
+                    <p>
+                        {{ lang._('When enabled, the relay counts the DNS names it sees (names only, never which client asked) and suggests rules for your applications: CNAME targets, sub-domains, CDN names, names resolved together. Nothing is added without your validation and Apply.') }}
+                    </p>
+                    <p class="text-muted">
+                        {{ lang._('With the automatic Unbound forwarding, the relay only sees the application domains and their CNAME chains: discovery then completes existing applications. It sees other domains only when all DNS queries go through the relay.') }}
+                    </p>
+                    <button type="button" class="btn btn-primary btn-sm" id="discovery-open-settings">
+                        {{ lang._('Enable it in Settings') }}
+                    </button>
+                </div>
+            </div>
+            <div id="discovery-on" style="display: none">
+                <div style="margin-top: 10px">
+                    <span id="discovery-counters" class="text-muted"></span>
+                    <button type="button" class="btn btn-xs btn-default" id="discovery-refresh">
+                        <i class="fa fa-refresh"></i> {{ lang._('Refresh') }}
+                    </button>
+                    <button type="button" class="btn btn-xs btn-default" id="discovery-purge">
+                        {{ lang._('Erase discovery data') }}
+                    </button>
+                </div>
+                <div id="discovery-notes" style="margin-top: 6px"></div>
+                <div class="panel panel-default" style="margin-top: 10px">
+                    <div class="panel-heading"><strong>{{ lang._('Learn 2 min') }}</strong></div>
+                    <div class="panel-body form-inline">
+                        <p class="text-muted">
+                            {{ lang._('Start, then use the application on a client for two minutes: names seen during the window are highlighted, "new" when never seen before.') }}
+                        </p>
+                        <select id="discovery-learn-app" class="form-control input-sm"></select>
+                        <button type="button" class="btn btn-sm btn-primary" id="discovery-learn-start">{{ lang._('Start learning') }}</button>
+                        <button type="button" class="btn btn-sm btn-default" id="discovery-learn-stop" style="display: none">{{ lang._('Stop') }}</button>
+                        <strong id="discovery-learn-countdown"></strong>
+                        <div id="discovery-learn-names" style="margin-top: 6px"></div>
+                    </div>
+                </div>
+                <h3>{{ lang._('Proposals') }}</h3>
+                <div id="discovery-proposals"></div>
+                <h3>{{ lang._('Unassigned') }}</h3>
+                <div id="discovery-unassigned"></div>
+                <h3>{{ lang._('Ignored') }}</h3>
+                <div id="discovery-ignored"></div>
+                <p class="text-muted">
+                    {{ lang._('Accepting only saves the rule in the application: nothing changes on the firewall before you click Apply. Ignored rules are kept in the configuration (and its backups).') }}
+                </p>
+            </div>
+        </div>
+    </div>
+
     <div id="settings" class="tab-pane fade in">
         <div class="col-md-12">
             <div id="unbound-status" class="panel panel-default" style="margin-top: 10px">
@@ -882,7 +1543,7 @@
                     <p id="upstream-summary" style="display: none"></p>
                     <p id="latency-summary" class="text-muted" style="display: none"></p>
                     <p id="unbound-summary" class="text-muted"></p>
-                    <div id="unbound-root-warning" class="alert alert-warning" style="display: none" role="alert"></div>
+                    <div id="unbound-root-warning" class="alert alert-info" style="display: none" role="alert"></div>
                     <div id="unbound-errors" class="alert alert-warning" style="display: none" role="alert"></div>
                     <button type="button" class="btn btn-xs btn-default" id="unbound-restart">
                         {{ lang._('Restart Unbound') }}

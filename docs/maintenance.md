@@ -130,9 +130,18 @@ Instantané actuel :
   `b609b818a195352b4d79eff4b8761b4ea1cc61079df7283e7a3e43cfcd618c35`
 - `v2fly.lst` : 414439 octets, 1416 listes conservées, 129 exclues.
 
+Le pare-feu peut aussi télécharger lui-même un catalogue plus récent
+(`catalog_update.py`, activé par défaut, quotidien) : il est écrit sous
+`/var/db/appalias/catalog/` (`source: "online"` dans le manifeste) et n'est
+employé que s'il est intègre et plus récent que l'instantané embarqué. La
+génération (`lib/v2fly_snapshot.py`) est la même que celle de l'outil
+ci-dessous. L'instantané embarqué reste la référence des releases et du mode
+hors ligne.
+
 ### Rafraîchir le catalogue
 
-`tools/v2fly-snapshot.py` (stdlib, non livré dans le paquet) télécharge
+`tools/v2fly-snapshot.py` (stdlib, non livré dans le paquet ; la génération
+vit dans `lib/v2fly_snapshot.py`, livrée et partagée avec le pare-feu) télécharge
 l'archive du commit, vérifie son sha256, l'extrait avec
 `tarfile` `filter="data"` (seuls `data/*` et `LICENSE`, fichiers réguliers,
 tailles plafonnées) et écrit les trois fichiers. L'archive est une donnée non
@@ -259,6 +268,29 @@ installation (`tools/install-copy.sh`) :
       « . » affiché dans *Settings* après Apply ;
     - catalogue : règles refusées d'un diff affichées en orange
       (`alert-warning`).
+11. Version 0.5 (modèle 0.4.0) :
+    - badge d'état en tête de page : *Running* (PID, version), *Stopped*,
+      *Config error* (config.json invalide) ; après installation de fichiers
+      plus récents sans redémarrage, avertissement « restart needed » ;
+    - note « forwarded domains bypass DNS over TLS » en bleu (info) relais
+      démarré, en rouge relais arrêté ;
+    - découverte : carte d'activation tant que *Discovery* est décoché ;
+      cochée puis Apply, `discovery.json` apparaît sous `/var/db/appalias/`
+      après *Refresh* ; *Learn 2 min* (compte à rebours, noms « new ») ;
+      *Accept* enregistre `full:`/`domain:` dans l'application (refus de
+      `domain:` sur une plateforme partagée), *Ignore* / *Stop ignoring*
+      modifient `general.discovery_ignored` ; *Erase discovery data* et
+      décocher *Discovery* puis Apply suppriment le fichier ; pastille
+      « N proposals » dans la grille ;
+    - `configctl appalias discovery_ctl 'learn:700'` et `'dump;id'` refusés ;
+    - catalogue en ligne : `crontab -l` contient la tâche
+      `configctl -d appalias catalog_update` (minute et heure dérivées du nom
+      d'hôte) tant que l'option est cochée en *daily*, plus rien une fois
+      décochée puis Apply ; *Update catalog now* affiche le nombre de listes
+      et l'écart ; `ps` pendant l'extraction montre le sous-processus sous
+      `nobody` ; *Revert to embedded* revient à « Embedded snapshot » ;
+    - après `pkg upgrade`, `+POST_INSTALL` rend la main tout de suite (mise à
+      jour du catalogue en tâche de fond, sous `daemon -f`).
 
 ## Rotation de clé
 

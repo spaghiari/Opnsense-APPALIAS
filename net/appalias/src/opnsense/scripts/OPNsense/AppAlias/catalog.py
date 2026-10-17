@@ -37,7 +37,12 @@ Aucune option en ligne de commande : les arguments viennent de configd et
 sont pris tels quels comme paramètres, jamais comme options.
 
 Index de recherche mis en cache dans /var/db/appalias/catalog.index.json,
-reconstruit quand le sha256 du .lst change. Aucun accès réseau.
+reconstruit quand le sha256 du .lst change. Aucun accès réseau ici.
+
+Provenance : le catalogue téléchargé par catalog_update.py (ONLINE_DIR) est
+employé s'il est intègre (sha256 du .lst conforme à son manifeste) et plus
+récent que l'instantané embarqué ; sinon l'instantané embarqué. popular.json
+vient toujours de l'instantané embarqué.
 """
 
 import hashlib
@@ -54,6 +59,7 @@ from lib import v2fly  # noqa: E402
 
 CATALOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "catalog")
 CACHE_PATH = "/var/db/appalias/catalog.index.json"
+ONLINE_DIR = "/var/db/appalias/catalog"
 LST_NAME = "v2fly.lst"
 MANIFEST_NAME = "v2fly.manifest.json"
 LICENSE_NAME = "LICENSE.v2fly"
@@ -76,12 +82,47 @@ def sha256_bytes(data):
     return hashlib.sha256(data).hexdigest()
 
 
-class Store:
-    """Accès au catalogue : fichiers embarqués, vérification, cache d'index."""
+def read_manifest(directory):
+    try:
+        with open(os.path.join(directory, MANIFEST_NAME), "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
 
-    def __init__(self, catalog_dir=CATALOG_DIR, cache_path=CACHE_PATH):
+
+def online_valid(directory):
+    """Manifeste du catalogue téléchargé s'il est intègre, sinon None."""
+    manifest = read_manifest(directory)
+    if manifest is None or manifest.get("source") != "online":
+        return None
+    try:
+        with open(os.path.join(directory, LST_NAME), "rb") as fh:
+            digest = sha256_bytes(fh.read())
+    except OSError:
+        return None
+    return manifest if manifest.get("lst_sha256") == digest else None
+
+
+def select_dir(embedded=CATALOG_DIR, online=ONLINE_DIR):
+    """(dossier, « online » | « embedded ») du catalogue à employer."""
+    manifest = online_valid(online) if online else None
+    if manifest is not None:
+        base = read_manifest(embedded) or {}
+        if str(manifest.get("date") or "") > str(base.get("date") or ""):
+            return online, "online"
+    return embedded, "embedded"
+
+
+class Store:
+    """Accès au catalogue : fichiers, vérification, cache d'index."""
+
+    def __init__(self, catalog_dir=CATALOG_DIR, cache_path=CACHE_PATH, origin="embedded",
+                 embedded_dir=CATALOG_DIR):
         self.catalog_dir = catalog_dir
         self.cache_path = cache_path
+        self.origin = origin
+        self.embedded_dir = embedded_dir
         self._raw = None
         self._manifest = None
         self._catalog = None
@@ -210,12 +251,15 @@ def summary(name, entry, match, via=None):
 def cmd_info(store):
     manifest = store.manifest()
     digest = store.lst_sha256()
+    embedded = read_manifest(store.embedded_dir) or {}
     return {
+        "origin": store.origin,
+        "embedded": {"commit": embedded.get("commit"), "date": embedded.get("date")},
         "source": manifest.get("source"),
         "commit": manifest.get("commit"),
         "date": manifest.get("date"),
         "license": manifest.get("license"),
-        "license_file": os.path.isfile(os.path.join(store.catalog_dir, LICENSE_NAME)),
+        "license_file": os.path.isfile(os.path.join(store.embedded_dir, LICENSE_NAME)),
         "lists": (manifest.get("counts") or {}).get("lists_kept"),
         "lst_bytes": len(store.raw()),
         "lst_sha256": digest,
@@ -229,7 +273,7 @@ def cmd_popular(store):
     """Catégories de popular.json ; seuls les noms présents dans le catalogue
     sont rendus (les autres sont listés dans « missing »)."""
     try:
-        with open(os.path.join(store.catalog_dir, POPULAR_NAME), "r", encoding="utf-8") as fh:
+        with open(os.path.join(store.embedded_dir, POPULAR_NAME), "r", encoding="utf-8") as fh:
             data = json.load(fh)
     except (OSError, ValueError) as exc:
         raise CatalogError("popular list unreadable") from exc
@@ -387,7 +431,15 @@ COMMANDS = {
 }
 
 
-def run(argv, catalog_dir=CATALOG_DIR, cache_path=CACHE_PATH):
+def open_store(catalog_dir=None, cache_path=CACHE_PATH, online_dir=ONLINE_DIR, embedded_dir=CATALOG_DIR):
+    """Store du catalogue choisi (catalog_dir imposé, ou select_dir)."""
+    if catalog_dir is not None:
+        return Store(catalog_dir, cache_path, "embedded", embedded_dir=catalog_dir)
+    directory, origin = select_dir(embedded_dir, online_dir)
+    return Store(directory, cache_path, origin, embedded_dir=embedded_dir)
+
+
+def run(argv, catalog_dir=None, cache_path=CACHE_PATH, online_dir=ONLINE_DIR):
     """Renvoie le dictionnaire JSON de la commande (jamais d'exception)."""
     if not argv or argv[0] not in COMMANDS:
         return {"error": "usage: catalog.py info | search <q> | preview <ref> | resolve <ref,ref> | popular"}
@@ -395,7 +447,7 @@ def run(argv, catalog_dir=CATALOG_DIR, cache_path=CACHE_PATH):
     args = list(argv[1:])
     if len(args) != nargs:
         return {"error": "%s: %d argument(s) expected" % (argv[0], nargs)}
-    store = Store(catalog_dir, cache_path)
+    store = open_store(catalog_dir, cache_path, online_dir)
     try:
         return func(store, *args)
     except CatalogError as exc:

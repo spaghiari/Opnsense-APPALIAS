@@ -107,6 +107,9 @@ class ServiceController extends ApiMutableServiceControllerBase
             }
         }
 
+        // Tâche cron de mise à jour du catalogue (appalias_cron) : régénérée selon l'option.
+        $backend->configdRun('cron restart');
+
         if (!$enabled) {
             $res = $backend->configdRun('appalias stop');
             return ['status' => trim($res) === 'OK' ? 'ok' : 'failed'];

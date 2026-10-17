@@ -70,7 +70,7 @@ class ModelTests(unittest.TestCase):
         self.root = ET.parse(os.path.join(MODEL_DIR, "AppAlias.xml")).getroot()
 
     def test_version_and_fields(self):
-        self.assertEqual(self.root.findtext("version"), "0.3.0")
+        self.assertEqual(self.root.findtext("version"), "0.4.0")
         proto = self.root.find("items/general/upstream_protocol")
         self.assertEqual((proto.get("type"), proto.findtext("Default")), ("OptionField", "dns"))
         self.assertEqual(sorted(c.tag for c in proto.find("OptionValues")), ["dns", "dot"])
@@ -134,8 +134,67 @@ class ModelTests(unittest.TestCase):
             self.assertIn(name, volt)
 
     def test_plugin_version(self):
-        self.assertRegex(read(os.path.join(PLUGIN, "Makefile")), r"PLUGIN_VERSION=\s+0.4.2\n")
-        self.assertIn("\n0.4.2\n", read(os.path.join(PLUGIN, "pkg-descr")))
+        self.assertRegex(read(os.path.join(PLUGIN, "Makefile")), r"PLUGIN_VERSION=\s+0.5\n")
+        self.assertIn("\n0.5\n", read(os.path.join(PLUGIN, "pkg-descr")))
+        from lib.version import VERSION
+        self.assertEqual(VERSION, "0.5")      # version écrite par le démon = paquet
+
+    def test_option_defaults_are_options(self):
+        """Le défaut de chaque OptionField fait partie de ses OptionValues."""
+        count = 0
+        for node in self.root.iter():
+            if node.get("type") != "OptionField":
+                continue
+            count += 1
+            default = node.findtext("Default")
+            options = [c.tag for c in node.find("OptionValues")]
+            if default is not None:
+                self.assertIn(default, options, node.tag)
+        self.assertGreaterEqual(count, 5)
+        origin = self.root.find("items/apps/app/origin")
+        self.assertEqual(origin.findtext("Default"), "manual")
+
+    def test_discovery_and_online_fields(self):
+        gen = self.root.find("items/general")
+        expected = {"discovery_enabled": ("BooleanField", "0"), "discovery_retention_days": ("IntegerField", "7"),
+                    "discovery_max_names": ("IntegerField", "5000"), "discovery_window": ("IntegerField", "5"),
+                    "catalog_online_update": ("BooleanField", "1"),
+                    "catalog_update_schedule": ("OptionField", "daily")}
+        for name, (kind, default) in expected.items():
+            node = gen.find(name)
+            self.assertEqual((node.get("type"), node.findtext("Default")), (kind, default), name)
+        self.assertEqual((gen.find("discovery_retention_days/MinimumValue").text,
+                          gen.find("discovery_retention_days/MaximumValue").text), ("1", "90"))
+        self.assertEqual((gen.find("discovery_max_names/MinimumValue").text,
+                          gen.find("discovery_max_names/MaximumValue").text), ("500", "50000"))
+        self.assertEqual(gen.find("discovery_ignored").get("type"), "CSVListField")
+        export = read(os.path.join(SRC, "opnsense", "scripts", "OPNsense", "AppAlias", "export_config.php"))
+        for name in ("discovery_enabled", "discovery_retention_days", "discovery_max_names",
+                     "discovery_window", "discovery_ignored", "catalog_online_update"):
+            self.assertIn("'%s' =>" % name, export)
+
+    def test_cron_and_post_install(self):
+        inc = read(os.path.join(SRC, "etc", "inc", "plugins.inc.d", "appalias.inc"))
+        self.assertIn("function appalias_cron()", inc)
+        self.assertIn("$jobs[]['autocron']", inc)
+        self.assertIn("crc32((string)gethostname())", inc)
+        post = read(os.path.join(PLUGIN, "+POST_INSTALL.post"))
+        self.assertIn("/usr/sbin/daemon -f /usr/local/bin/python3 /usr/local/opnsense/scripts/OPNsense/AppAlias/catalog_update.py "
+                      "update --if-enabled", post)
+        rc = read(os.path.join(SRC, "etc", "rc.d", "appaliasd"))
+        self.assertIn('extra_commands="reload ctl"', rc)
+        self.assertIn("appaliasd_signal USR1", rc)
+        self.assertFalse(os.path.exists(os.path.join(ROOT, ".github", "workflows", "v2fly-refresh.yml")))
+
+    def test_volt_relay_badge_and_discovery(self):
+        volt = read(os.path.join(MVC, "views", "OPNsense", "AppAlias", "index.volt"))
+        self.assertIn('<div id="unbound-root-warning" class="alert alert-info"', volt)
+        self.assertIn("relayRunning === false ? 'alert-danger' : 'alert-info'", volt)
+        self.assertIn('href="#discovery"', volt)
+        self.assertIn("'/api/appalias/catalog/update'", volt)
+        self.assertIn("'/api/appalias/catalog/reset'", volt)
+        script = volt[volt.index("<script>"):volt.index("</script>")]
+        self.assertNotIn(".html(", script)          # tout en .text()
 
 
 class ActionTests(unittest.TestCase):
@@ -151,6 +210,12 @@ class ActionTests(unittest.TestCase):
             self.assertEqual(cp[section]["command"],
                              "/usr/local/opnsense/scripts/OPNsense/AppAlias/catalog.py " + sub)
             self.assertEqual(cp[section]["parameters"], "" if sub in ("info", "popular") else "%s")
+        base = "/usr/local/opnsense/scripts/OPNsense/AppAlias/"
+        self.assertEqual(cp["discovery_list"]["command"], base + "discovery.py list")
+        self.assertEqual((cp["discovery_ctl"]["command"], cp["discovery_ctl"]["parameters"],
+                          cp["discovery_ctl"]["type"]), (base + "discovery.py ctl", "%s", "script"))
+        self.assertEqual(cp["catalog_update"]["command"], base + "catalog_update.py update")
+        self.assertEqual(cp["catalog_reset"]["command"], base + "catalog_update.py reset")
 
     def test_unbound_actions(self):
         cp = configparser.ConfigParser(delimiters=(":",), interpolation=None)

@@ -31,6 +31,11 @@ la table pf, dernière correspondance (last_hit) et dernière erreur ;
 l'amont par amont et de pf, nombre, moyenne et p95 sur les 256 dernières
 mesures. Le démon les écrit toutes les 15 s au plus : léger décalage possible.
 
+Version : « version » est celle du code en cours d'exécution (écrite par le
+démon dans metrics.json au démarrage, retenue seulement si le PID correspond
+au processus en cours), « installed_version » celle des fichiers installés ;
+« restart_needed » est vrai quand elles diffèrent, null si inconnu.
+
 « --show <table> » : contenu d'une table gérée (action « appalias table_show »).
 Le nom est validé et doit appartenir à une application configurée.
 """
@@ -47,6 +52,7 @@ from lib import config as cfgmod  # noqa: E402
 from lib import metrics  # noqa: E402
 from lib.pftable import PfError, PfTable, valid_table  # noqa: E402
 from lib.state import State  # noqa: E402
+from lib.version import VERSION  # noqa: E402
 
 
 def daemon_running(pidfile=cfgmod.PIDFILE):
@@ -57,6 +63,23 @@ def daemon_running(pidfile=cfgmod.PIDFILE):
         return pid
     except (OSError, ValueError):
         return None
+
+
+def child_pid(pidfile=cfgmod.CHILD_PIDFILE):
+    try:
+        with open(pidfile, "r", encoding="ascii") as fh:
+            return int(fh.read().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def running_version(latency, pid):
+    """Version écrite par le démon en cours d'exécution (PID vérifié), ou None."""
+    info = latency.get("daemon") if isinstance(latency, dict) else None
+    if not isinstance(info, dict) or pid is None or info.get("pid") != pid:
+        return None
+    version = info.get("version")
+    return str(version) if isinstance(version, str) and len(version) <= 32 else None
 
 
 def count_families(entries):
@@ -73,8 +96,9 @@ def count_families(entries):
     return v4, v6
 
 
-def status(config_path, state_path, pf):
-    out = {"status": "stopped", "pid": None, "apps": {}, "error": None, "latency": {}}
+def status(config_path, state_path, pf, child_pidfile=cfgmod.CHILD_PIDFILE):
+    out = {"status": "stopped", "pid": None, "apps": {}, "error": None, "latency": {},
+           "version": None, "installed_version": VERSION, "restart_needed": None}
     try:
         cfg = cfgmod.load(config_path)
     except cfgmod.ConfigError as exc:
@@ -88,6 +112,10 @@ def status(config_path, state_path, pf):
         out["status"] = "disabled"
     state = State.load(state_path)
     out["latency"] = metrics.read(metrics.path_for(state_path))
+    if pid:
+        out["version"] = running_version(out["latency"], child_pid(child_pidfile))
+        if out["version"] is not None:
+            out["restart_needed"] = out["version"] != VERSION
     for app in cfg.apps:
         item = {
             "uuid": app.uuid,

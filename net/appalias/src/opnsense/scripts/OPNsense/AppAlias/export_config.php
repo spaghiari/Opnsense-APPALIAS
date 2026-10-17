@@ -47,6 +47,12 @@ openlog('appalias', LOG_PID, LOG_DAEMON);
 $mdl = new AppAlias();
 $gen = $mdl->general;
 
+// Champ vide -> null : lib/config.py applique alors sa valeur par défaut.
+$intOrNull = function ($field) {
+    $value = trim((string)$field);
+    return $value === '' ? null : (int)$value;
+};
+
 $out = [
     'version' => 1,
     'general' => [
@@ -69,6 +75,14 @@ $out = [
         'shared_platforms_extra' => AppAlias::splitList($gen->shared_platforms_extra),
         // opt-in : valeur vide (config 0.2) = désactivé
         'unbound_autoforward' => (string)$gen->unbound_autoforward == '1',
+        // découverte, opt-in : valeur vide (config 0.4) = désactivée
+        'discovery_enabled' => (string)$gen->discovery_enabled == '1',
+        'discovery_retention_days' => $intOrNull($gen->discovery_retention_days),
+        'discovery_max_names' => $intOrNull($gen->discovery_max_names),
+        'discovery_window' => $intOrNull($gen->discovery_window),
+        'discovery_ignored' => AppAlias::splitList($gen->discovery_ignored),
+        // mise à jour en ligne du catalogue : activée par défaut
+        'catalog_online_update' => (string)$gen->catalog_online_update !== '0',
     ],
     'apps' => [],
 ];

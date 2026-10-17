@@ -53,7 +53,8 @@ start_cmd="appaliasd_start"
 stop_cmd="appaliasd_stop"
 status_cmd="appaliasd_status"
 reload_cmd="appaliasd_reload"
-extra_commands="reload"
+ctl_cmd="appaliasd_ctl"
+extra_commands="reload ctl"
 
 appaliasd_pid()
 {
@@ -110,18 +111,31 @@ appaliasd_status()
 	fi
 }
 
-appaliasd_reload()
+appaliasd_signal()
 {
-	# SIGHUP au processus Python, pas au superviseur.
+	# Signal au processus Python, pas au superviseur daemon(8).
 	if [ -f "${childpidfile}" ]; then
 		_cpid=$(cat "${childpidfile}" 2>/dev/null)
 		if [ -n "${_cpid}" ] && kill -0 "${_cpid}" 2>/dev/null; then
-			kill -HUP "${_cpid}"
+			kill "-$1" "${_cpid}"
 			return 0
 		fi
 	fi
 	echo "${name} is not running."
 	return 1
+}
+
+appaliasd_reload()
+{
+	# SIGHUP : relecture de config.json.
+	appaliasd_signal HUP
+}
+
+appaliasd_ctl()
+{
+	# SIGUSR1 : commande de découverte (/var/db/appalias/discovery.ctl.json,
+	# écrite par discovery.py).
+	appaliasd_signal USR1
 }
 
 run_rc_command "$1"

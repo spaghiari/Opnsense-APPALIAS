@@ -33,6 +33,10 @@ Modules :
 - shared  : garde-fou des plateformes partagées (data/shared_platforms.txt) ;
 - v2fly   : analyseur du catalogue v2fly embarqué (catalog/v2fly.lst) ;
 - unboundfwd : zones de transfert Unbound vers le relais (dédoublonnage).
+- discovery : découverte (observation, agrégation, persistance, Learn) ;
+- score   : propositions de la découverte (score, explications, eTLD+1) ;
+- v2fly_snapshot : génération d'un instantané v2fly (outil et pare-feu) ;
+- version : version du code (PLUGIN_VERSION).
 
 Stdlib uniquement.
 """

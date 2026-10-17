@@ -18,6 +18,36 @@ WWW: https://github.com/spaghiari/Opnsense-APPALIAS
 Plugin Changelog
 ================
 
+0.5
+
+* Discovery (off by default): the relay counts the DNS names it sees
+  (names only, never which client asked) and suggests rules for the
+  applications in a new Discovery tab: same CNAME target as a covered name,
+  CNAME chain through a covered name, name of an imported v2fly list, names
+  resolved together (co-occurrence), same site, keyword:/regexp: rules.
+  Each proposal shows a score and its reasons; full: by default, domain:
+  for groups of names (never on a shared platform). Accept, Ignore or
+  Other app; nothing is applied before Apply. Learn mode: a 2 minute
+  window that highlights the names seen while using an application.
+  Retention (7 days by default), size cap, purge; ignored rules are kept in
+  config.xml. Turning discovery off erases its data. On the answer path,
+  observing a name is a single append to a bounded queue.
+* Relay status at the top of the page: Running (PID, running version),
+  Stopped or Config error, and a "restart needed" warning when the running
+  code differs from the installed version.
+* The note about forwarded domains bypassing DNS over TLS while the relay
+  is down is informational while the relay runs, red only when it is
+  stopped.
+* Optional online catalog update (off by default): "Update catalog now" in
+  the Catalog tab, or daily, downloads the latest
+  v2fly/domain-list-community from GitHub (HTTPS, api.github.com and
+  codeload.github.com only, 20 MB cap). Extraction and checks run as an
+  unprivileged user; the downloaded catalog replaces the embedded one only
+  if it is newer and passes the checks (500 lists at least, popular lists
+  present, no broken list). "Revert to embedded" deletes it. New rules
+  still go through the catalog updates to review.
+* Model 0.4.0: discovery and catalog download settings.
+
 0.4.2
 
 * Upgrade: the relay is restarted after the package is upgraded when it is

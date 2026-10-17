@@ -52,6 +52,9 @@ class AppAlias extends BaseModel
     /** Référence de liste du catalogue v2fly (« netflix@-ads »). */
     const CATALOG_REF_PATTERN = '/^[a-z0-9-]+(@-?[a-z0-9-]+)*$/';
 
+    /** Nombre maximal de règles ignorées par la découverte. */
+    const MAX_DISCOVERY_IGNORED = 2000;
+
     /** Contenu de SHARED_PLATFORMS_FILE, lu une fois par requête. */
     private static $sharedPlatformsFile = null;
 
@@ -253,6 +256,41 @@ class AppAlias extends BaseModel
     }
 
     /**
+     * Règle de découverte « full:nom » ou « domain:nom » -> [type, nom normalisé],
+     * ou null si elle est invalide. Seules formes acceptées pour accepter ou
+     * ignorer une proposition.
+     */
+    public static function discoveryRule($rule)
+    {
+        if (!is_string($rule) || !preg_match('/^(full|domain):(.+)$/', trim($rule), $m)) {
+            return null;
+        }
+        $value = self::normalizeHost($m[2]);
+        $label = '[a-z0-9_]([a-z0-9_-]{0,61}[a-z0-9_])?';
+        if (strlen($value) > 253 || preg_match('/^' . $label . '(\.' . $label . ')*$/', $value) !== 1) {
+            return null;
+        }
+        return [$m[1], $value];
+    }
+
+    /**
+     * Vrai si le nom est une plateforme partagée, son parent ou son sous-domaine.
+     */
+    public static function touchesShared($value, $platforms)
+    {
+        foreach ($platforms as $platform) {
+            if (
+                $platform === $value ||
+                str_ends_with($platform, '.' . $value) ||
+                str_ends_with($value, '.' . $platform)
+            ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Vrai si $name est un nom d'hôte (labels LDH, 253 caractères au plus,
      * point final toléré) ou une adresse IP : nom TLS d'un amont.
      */
@@ -423,6 +461,26 @@ class AppAlias extends BaseModel
                     gettext('An upstream resolver is required when the service is enabled.'),
                     $general->upstream_address->__reference
                 ));
+            }
+        }
+
+        // Découverte : règles ignorées, full:/domain: seulement, 2000 au plus.
+        if ($validateFullModel || $general->discovery_ignored->isFieldChanged()) {
+            $ignored = self::splitList($general->discovery_ignored);
+            if (count($ignored) > self::MAX_DISCOVERY_IGNORED) {
+                $messages->appendMessage(new Message(
+                    sprintf(gettext('At most %d ignored discovery rules.'), self::MAX_DISCOVERY_IGNORED),
+                    $general->discovery_ignored->__reference
+                ));
+            }
+            foreach ($ignored as $rule) {
+                if (self::discoveryRule($rule) === null) {
+                    $messages->appendMessage(new Message(
+                        sprintf(gettext('Invalid ignored discovery rule: %s (full:name or domain:name).'), $rule),
+                        $general->discovery_ignored->__reference
+                    ));
+                    break;
+                }
             }
         }
 

@@ -64,6 +64,33 @@ function appalias_services()
 }
 
 /**
+ * Mise à jour quotidienne du catalogue v2fly (activée par défaut) : une tâche
+ * cron seulement si le téléchargement en ligne est activé et la fréquence
+ * réglée sur « daily ». Minute et heure (entre 1 h et 4 h 59) dérivées du nom
+ * d'hôte, pour que les pare-feu n'appellent pas GitHub tous à la même heure.
+ * Le script prend un verrou et ne remplace jamais le catalogue sans contrôle
+ * de cohérence. Rien n'est appliqué aux applications : les nouveautés passent
+ * par le diff.
+ */
+function appalias_cron()
+{
+    $jobs = [];
+    $mdl = new \OPNsense\AppAlias\AppAlias();
+    if (
+        (string)$mdl->general->catalog_online_update == '1' &&
+        (string)$mdl->general->catalog_update_schedule == 'daily'
+    ) {
+        $hash = crc32((string)gethostname());
+        $jobs[]['autocron'] = [
+            '/usr/local/sbin/configctl -d appalias catalog_update',
+            (string)($hash % 60),
+            (string)(1 + intdiv($hash, 60) % 4),
+        ];
+    }
+    return $jobs;
+}
+
+/**
  * Événements : démarrage du système, événement « appalias », et démarrage
  * ou reconfiguration d'Unbound (« dns », « unbound_start » du core). Les
  * plugins sont parcourus par ordre alphabétique (plugins_scan) : appalias

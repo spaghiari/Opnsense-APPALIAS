@@ -38,7 +38,9 @@ use OPNsense\Core\Config;
  *
  * GET  info, popular, search?q=, preview?ref=, diff[?uuid=] ;
  * POST import {ref, mode: new|merge, app_uuid?, name?, rules[]},
- *      applyDiff {app_uuid, add[], remove[]}.
+ *      applyDiff {app_uuid, add[], remove[]},
+ *      update (téléchargement en ligne, si l'option est activée), reset
+ *      (retour à l'instantané embarqué).
  *
  * Les écritures vérifient côté serveur que les règles viennent bien de la
  * résolution de la référence, puis enregistrent l'application dans
@@ -217,7 +219,42 @@ class CatalogController extends ApiControllerBase
 
     public function infoAction()
     {
-        return $this->catalogRun('catalog_info');
+        $data = $this->catalogRun('catalog_info');
+        $mdl = new AppAlias();
+        $data['online_update'] = (string)$mdl->general->catalog_online_update == '1';
+        $data['schedule'] = (string)$mdl->general->catalog_update_schedule;
+        return $data;
+    }
+
+    /**
+     * Téléchargement du dernier catalogue v2fly (catalog_update.py), seulement
+     * si l'option est activée. Le catalogue est remplacé après contrôle ; les
+     * applications ne changent pas (les nouveautés passent par le diff).
+     */
+    public function updateAction()
+    {
+        if (!$this->request->isPost()) {
+            return self::failed(gettext('POST required.'));
+        }
+        $mdl = new AppAlias();
+        if ((string)$mdl->general->catalog_online_update != '1') {
+            return self::failed(gettext('Catalog download is disabled in Settings.'));
+        }
+        $data = $this->catalogRun('catalog_update');
+        if (!isset($data['result'])) {
+            return self::failed((string)($data['error'] ?? gettext('Unreadable answer from catalog_update.py.')));
+        }
+        return $data;
+    }
+
+    /** Suppression du catalogue téléchargé : retour à l'instantané embarqué. */
+    public function resetAction()
+    {
+        if (!$this->request->isPost()) {
+            return self::failed(gettext('POST required.'));
+        }
+        $data = $this->catalogRun('catalog_reset');
+        return isset($data['result']) ? $data : self::failed((string)($data['error'] ?? ''));
     }
 
     /** Galerie « Popular apps » (catalog/popular.json, noms présents dans l'instantané). */

@@ -133,8 +133,8 @@ pour tout chiffrer. Dans *Settings*, recommandé avec Quad9 :
 
 L'onglet *Catalog* cherche dans un instantané embarqué de
 [v2fly/domain-list-community](https://github.com/v2fly/domain-list-community)
-(commit épinglé, empreinte vérifiée ; aucun téléchargement sur le pare-feu),
-par nom de liste (`netflix`) ou par domaine (`nflxvideo.net`). L'aperçu
+(commit épinglé, empreinte vérifiée), rafraîchi chaque jour depuis GitHub
+(voir *Mise à jour du catalogue*), par nom de liste (`netflix`) ou par domaine (`nflxvideo.net`). L'aperçu
 regroupe les règles par type et laisse choisir celles à importer, dans une
 nouvelle application ou par fusion dans une application existante :
 
@@ -147,14 +147,76 @@ nouvelle application ou par fusion dans une application existante :
 - l'import enregistre l'application, sans rien appliquer : il faut toujours
   cliquer sur **Apply**.
 
-Après une mise à jour du plugin (nouvel instantané), la grille indique pour
+Après une mise à jour du catalogue (téléchargement quotidien ou nouvel
+instantané embarqué), la grille indique pour
 chaque application importée le nombre de « catalog updates » : règles
 ajoutées ou retirées par le catalogue, à cocher dans une modale avant
 enregistrement. Les règles ajoutées à la main sont conservées.
 
 **Règles de découverte** : `keyword:` et `regexp:` sont conservées dans la
 configuration mais jamais appliquées par le relais (une seule ligne de
-journal, en debug, indique leur nombre).
+journal, en debug, indique leur nombre). Elles alimentent le score de
+l'onglet *Discovery*.
+
+### Mise à jour du catalogue
+
+Par défaut, le pare-feu contacte GitHub **une fois par jour** (à une heure
+tirée du nom d'hôte, entre 1 h et 5 h) et juste après l'installation ou la
+mise à jour du plugin, pour télécharger le dernier commit de
+v2fly/domain-list-community. Le bouton **Update catalog now** de l'onglet
+*Catalog* le fait tout de suite ; **Revert to embedded** revient à
+l'instantané du paquet. L'encadré de l'onglet indique la provenance
+(« Embedded snapshot » ou « Downloaded », date et commit).
+
+- **Rien ne s'applique tout seul** : seul le catalogue change. Les nouvelles
+  règles apparaissent dans les « catalog updates » de chaque application, à
+  cocher puis **Apply**.
+- **Sécurité** : HTTPS seulement, vers `api.github.com` et
+  `codeload.github.com` (aucune autre destination, aucune redirection vers un
+  autre hôte), certificat vérifié, archive plafonnée à 20 Mo. L'extraction et
+  la génération (le même code que l'outil des releases) tournent sous
+  l'utilisateur `nobody`, dans un dossier temporaire privé. Le catalogue
+  n'est remplacé qu'après contrôle (au moins 500 listes, listes populaires
+  présentes, aucune liste cassée) ; sinon le précédent est gardé et l'erreur
+  journalisée. Le catalogue téléchargé n'est employé que s'il est intègre et
+  plus récent que l'instantané embarqué.
+- **Vie privée** : GitHub voit l'adresse IP du pare-feu une fois par jour.
+- **Hors ligne** : décocher *Download catalog updates* (onglet *Settings*)
+  revient au mode embarqué, sans aucun accès réseau : le catalogue ne change
+  alors qu'avec les mises à jour du plugin.
+
+## Découverte
+
+L'onglet *Discovery* (désactivé par défaut, *Settings > Discovery*) propose
+des règles pour vos applications à partir des noms DNS vus par le relais :
+même cible CNAME qu'un nom couvert, chaîne CNAME qui passe par un nom couvert,
+nom présent dans une liste v2fly importée, noms résolus ensemble
+(co-occurrence), même site, règles `keyword:` / `regexp:`. Chaque proposition
+affiche un score, ses raisons et une règle (`full:` par défaut, `domain:` pour
+un groupe de noms du même site, jamais sur une plateforme partagée). **Accept**
+enregistre la règle dans l'application ; rien ne change avant **Apply**. Le
+mode *Learn 2 min* met en avant les noms vus pendant que vous utilisez une
+application.
+
+Ce que voit le relais : avec le transfert automatique d'Unbound, seulement
+les domaines des applications et leurs chaînes CNAME (sous-domaines,
+cibles CDN). La découverte complète donc surtout des applications
+existantes ; elle ne voit d'autres domaines que si tout le DNS passe par le
+relais.
+
+### Vie privée
+
+- **Noms seulement** : le relais ne voit que le résolveur local, jamais le
+  client qui a posé la question ; seuls des noms DNS, des compteurs et des
+  horodatages sont gardés (`/var/db/appalias/discovery.json`, 0640).
+- **Rétention** : 7 jours par défaut (1 à 90), plafond de noms (5000 par
+  défaut) ; **Erase discovery data** efface tout.
+- **Désactivée par défaut** ; la désactiver efface les données.
+- Les règles ignorées sont enregistrées dans `config.xml`, donc dans ses
+  sauvegardes.
+- Coût sur le DNS : l'observation d'une réponse est un simple ajout dans une
+  file bornée, sans écriture disque ; le calcul se fait à part, toutes les
+  2 secondes.
 
 ## Exemple
 
@@ -196,9 +258,10 @@ immédiat et la bascule aussi.
   prochaine résolution.
 - **Écoute** : laisser le relais sur `127.0.0.1` (défaut). Ouvert au LAN, un
   client pourrait remplir les alias jusqu'au plafond par application.
-- **État actuel (0.4.2)** : catalogue v2fly et DNS over TLS vers l'amont
-  disponibles (port 853 et nom TLS préremplis, 53 refusé en DNS over TLS) ; les sources ASN ne sont pas encore utilisées et les règles `keyword:` / `regexp:` restent des
-  règles de découverte.
+- **État actuel (0.5)** : catalogue v2fly (rafraîchi chaque jour, option),
+  DNS over TLS vers l'amont, découverte (option), état du relais avec sa
+  version en tête de page ; les sources ASN ne sont pas encore utilisées et
+  les règles `keyword:` / `regexp:` restent des règles de découverte.
 
 ## Contribuer, sécurité, licence
 

@@ -5,3 +5,8 @@ if /usr/local/etc/rc.d/appaliasd onestatus > /dev/null 2>&1; then
 	echo "Restarting appaliasd"
 	/usr/local/etc/rc.d/appaliasd onerestart > /dev/null 2>&1 || true
 fi
+
+# Catalogue v2fly : premier rafraîchissement en ligne en tâche de fond, si
+# l'option est active (--if-enabled lit config.json). Jamais bloquant :
+# daemon(8) détache le processus ; en cas d'échec, le cron quotidien reprend.
+/usr/sbin/daemon -f /usr/local/bin/python3 /usr/local/opnsense/scripts/OPNsense/AppAlias/catalog_update.py update --if-enabled > /dev/null 2>&1 || true
