@@ -33,7 +33,7 @@
         <id>appalias.general.upstream_port</id>
         <label>Upstream port</label>
         <type>text</type>
-        <help>53 for plain DNS. DNS over TLS uses port 853: change the value to 853 when you select it (it is not changed automatically).</help>
+        <help>53 for plain DNS, 853 for DNS over TLS (set automatically when you change the protocol, unless the port is custom). Port 53 with DNS over TLS and port 853 with plain DNS are refused.</help>
     </field>
     <field>
         <id>appalias.general.upstream_tls_name</id>

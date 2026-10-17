@@ -122,6 +122,11 @@ def parse_hostport(text, default_port=None):
 
     Sans port, default_port est employé (ConfigError s'il vaut None).
     """
+    return _parse_hostport(text, default_port)[:2]
+
+
+def _parse_hostport(text, default_port=None):
+    """Comme parse_hostport, mais renvoie (ip, port, port_explicite)."""
     text = str(text).strip()
     reject_wildcard(text, "amont")
     host, port = text, None
@@ -143,6 +148,7 @@ def parse_hostport(text, default_port=None):
         ip = ipaddress.ip_address(host)
     except ValueError as exc:
         raise ConfigError("adresse d'amont invalide : %s" % text) from exc
+    explicit = port is not None
     if port is None:
         if default_port is None:
             raise ConfigError("port d'amont manquant : %s" % text)
@@ -153,7 +159,23 @@ def parse_hostport(text, default_port=None):
         raise ConfigError("port d'amont invalide : %s" % text) from exc
     if not 1 <= port <= 65535:
         raise ConfigError("port d'amont hors plage : %s" % text)
-    return (str(ip), port)
+    return (str(ip), port, explicit)
+
+
+def normalize_protocol_port(protocol, port, what):
+    """Port du bon protocole : 53 en « dot » devient 853, 853 en « dns » devient 53.
+
+    Une config 0.4 éditée à la main ou enregistrée avant 0.4.1 ne doit pas
+    empêcher le démon de démarrer : correction avec un warning (le modèle
+    refuse désormais ces combinaisons à l'enregistrement).
+    """
+    if protocol == "dot" and port == 53:
+        log.warning("%s: port 53 with DNS over TLS replaced by 853", what)
+        return 853
+    if protocol == "dns" and port == 853:
+        log.warning("%s: port 853 with plain DNS replaced by 53", what)
+        return 53
+    return port
 
 
 def valid_tls_name(name):
@@ -195,7 +217,9 @@ def parse_upstream(text, default_port, default_tls_name=None, protocol="dns"):
         name = name.strip()
         if not valid_tls_name(name):
             raise ConfigError("nom TLS d'amont invalide : %s" % name)
-    host, port = parse_hostport(text, default_port)
+    host, port, explicit = _parse_hostport(text, default_port)
+    if explicit:
+        port = normalize_protocol_port(protocol, port, "upstream_fallback %s" % text)
     if protocol != "dot":
         return Upstream(host, port, None)
     tls_name = norm_tls_name(name) or norm_tls_name(default_tls_name)
@@ -308,14 +332,14 @@ def from_dict(data):
     tls_name = norm_tls_name(tls_name_raw)
     default_port = DEFAULT_PORTS[protocol]
     upstream_address = str(gen.get("upstream_address") or "").strip()
-    # Port enregistré respecté tel quel (53 en « dot » : l'interface le signale).
     upstream_port = as_int(gen.get("upstream_port"), default_port, 1, 65535)
     upstreams = []
     if upstream_address:
         reject_wildcard(upstream_address, "upstream_address")
         if protocol == "dot" and tls_name is None:
             raise ConfigError("upstream_tls_name est obligatoire en DNS over TLS")
-        host, port = parse_hostport(upstream_address, upstream_port)
+        host, port, explicit = _parse_hostport(upstream_address, upstream_port)
+        port = normalize_protocol_port(protocol, port, "upstream_address" if explicit else "upstream_port")
         upstreams.append(Upstream(host, port, tls_name if protocol == "dot" else None))
     elif enabled:
         raise ConfigError("upstream_address est obligatoire quand le service est activé")

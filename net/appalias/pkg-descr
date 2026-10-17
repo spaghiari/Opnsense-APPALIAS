@@ -18,6 +18,18 @@ WWW: https://github.com/spaghiari/Opnsense-APPALIAS
 Plugin Changelog
 ================
 
+0.4.1
+
+* Settings: choosing DNS over TLS sets the upstream port to 853 (when it is
+  53 or empty) and fills in the TLS name for Quad9, Cloudflare and Google
+  public resolvers; going back to plain DNS puts 853 back to 53. A custom
+  port is never changed.
+* Validation: DNS over TLS with port 53 and plain DNS with port 853 are
+  refused when saving, for the main upstream and for fallback upstreams with
+  an explicit port. A configuration already saved that way (0.4) still
+  starts: the relay corrects the port (53 to 853 with DNS over TLS, 853 to
+  53 with plain DNS) and logs one warning per correction.
+
 0.4
 
 * DNS over TLS (RFC 7858) to the upstream: new Upstream protocol (plain

@@ -303,6 +303,41 @@ class AppAlias extends BaseModel
     }
 
     /**
+     * Port explicite d'un amont de secours (« ip:port », « [ipv6]:port »), ou
+     * null s'il n'y en a pas. À appeler sur un amont déjà reconnu valide.
+     */
+    private static function explicitPort($item)
+    {
+        $item = trim((string)$item);
+        $hash = strpos($item, '#');
+        if ($hash !== false) {
+            $item = substr($item, 0, $hash);
+        }
+        if (
+            preg_match('/^\[[0-9a-f:.]+\]:([0-9]{1,5})$/i', $item, $m) ||
+            preg_match('/^[0-9.]+:([0-9]{1,5})$/', $item, $m)
+        ) {
+            return (int)$m[1];
+        }
+        return null;
+    }
+
+    /**
+     * Message de refus si le port ne correspond pas au protocole (53 en DNS over TLS,
+     * 853 en DNS clair), sinon null. Même règle que lib/config.py.
+     */
+    private static function protocolPortRefusal($dot, $port)
+    {
+        if ($dot && $port === 53) {
+            return gettext('DNS over TLS uses port 853; port 53 only speaks plain DNS.');
+        }
+        if (!$dot && $port === 853) {
+            return gettext('Plain DNS uses port 53; port 853 only speaks DNS over TLS.');
+        }
+        return null;
+    }
+
+    /**
      * {@inheritdoc}
      */
     public function performValidation($validateFullModel = false)
@@ -330,7 +365,30 @@ class AppAlias extends BaseModel
                         ),
                         $general->upstream_fallback->__reference
                     ));
+                } else {
+                    $refusal = self::protocolPortRefusal($dot, self::explicitPort($item));
+                    if ($refusal !== null) {
+                        $messages->appendMessage(new Message(
+                            $item . ': ' . $refusal,
+                            $general->upstream_fallback->__reference
+                        ));
+                    }
                 }
+            }
+        }
+
+        // Port de l'amont principal cohérent avec le protocole.
+        if (
+            $validateFullModel ||
+            $general->upstream_port->isFieldChanged() ||
+            $general->upstream_protocol->isFieldChanged()
+        ) {
+            $refusal = self::protocolPortRefusal($dot, (int)(string)$general->upstream_port);
+            if ($refusal !== null) {
+                $messages->appendMessage(new Message(
+                    $refusal,
+                    $general->upstream_port->__reference
+                ));
             }
         }
 

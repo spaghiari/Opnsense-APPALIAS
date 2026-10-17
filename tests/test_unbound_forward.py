@@ -122,6 +122,8 @@ class PlanTests(unittest.TestCase):
                                          ("127.0.0.1", 53535, True),     # le relais lui-même
                                          ("127.0.0.1", 8853, False),
                                          ("9.9.9.9", 853, False)):
+                if protocol == "dns" and port == 853:
+                    continue    # la config corrige 853 en 53 en DNS clair : cas couvert par test_config_dot
                 data = load_fixture()
                 data["general"].update({"upstream_protocol": protocol, "upstream_address": upstream,
                                         "upstream_port": port, "upstream_tls_name": "dns.quad9.net"})

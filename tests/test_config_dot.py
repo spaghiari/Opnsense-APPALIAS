@@ -28,10 +28,44 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(cfg.upstreams, [Upstream("9.9.9.9", 853, "dns.quad9.net"),
                                          Upstream("149.112.112.112", 853, "dns.quad9.net")])
 
-    def test_dot_port_53_kept(self):
-        # pas de changement silencieux du port enregistré
-        cfg = load(upstream_protocol="dot", upstream_port=53, upstream_tls_name="dns.quad9.net")
+    def test_dot_port_53_corrected(self):
+        # config 0.4 : le démon doit démarrer, avec le port corrigé et un warning
+        with self.assertLogs("appalias", "WARNING") as logs:
+            cfg = load(upstream_protocol="dot", upstream_port=53, upstream_tls_name="dns.quad9.net")
+        self.assertEqual(cfg.upstreams[0].port, 853)
+        self.assertEqual(logs.output, ["WARNING:appalias:upstream_port: port 53 with DNS over TLS replaced by 853"])
+        with self.assertLogs("appalias", "WARNING") as logs:
+            cfg = load(upstream_protocol="dot", upstream_address="9.9.9.9:53", upstream_tls_name="dns.quad9.net")
+        self.assertEqual(cfg.upstreams[0].port, 853)
+        self.assertEqual(len(logs.output), 1)
+
+    def test_dns_port_853_corrected(self):
+        with self.assertLogs("appalias", "WARNING") as logs:
+            cfg = load(upstream_protocol="dns", upstream_port=853)
         self.assertEqual(cfg.upstreams[0].port, 53)
+        self.assertEqual(logs.output, ["WARNING:appalias:upstream_port: port 853 with plain DNS replaced by 53"])
+        with self.assertLogs("appalias", "WARNING"):
+            cfg = load(upstream_protocol="dns", upstream_address="9.9.9.9:853")
+        self.assertEqual(cfg.upstreams[0].port, 53)
+
+    def test_custom_ports_kept(self):
+        self.assertEqual(load(upstream_protocol="dns", upstream_port=5353).upstreams[0].port, 5353)
+        cfg = load(upstream_protocol="dot", upstream_port=8853, upstream_tls_name="dns.quad9.net")
+        self.assertEqual(cfg.upstreams[0].port, 8853)
+
+    def test_fallback_explicit_wrong_port_corrected(self):
+        with self.assertLogs("appalias", "WARNING") as logs:
+            cfg = load(upstream_protocol="dot", upstream_port=853, upstream_tls_name="dns.quad9.net",
+                       upstream_fallback=["149.112.112.112:53"])
+        self.assertEqual(cfg.upstreams[1].port, 853)
+        self.assertEqual(len(logs.output), 1)
+        with self.assertLogs("appalias", "WARNING"):
+            cfg = load(upstream_protocol="dns", upstream_fallback=["[2620:fe::9]:853"])
+        self.assertEqual(cfg.upstreams[1].port, 53)
+        # sans port explicite : défaut du protocole, aucun warning
+        cfg = load(upstream_protocol="dot", upstream_port=853, upstream_tls_name="dns.quad9.net",
+                   upstream_fallback=["149.112.112.112"])
+        self.assertEqual(cfg.upstreams[1].port, 853)
 
     def test_dot_port_default_853(self):
         cfg = load(upstream_protocol="dot", upstream_tls_name="dns.quad9.net")

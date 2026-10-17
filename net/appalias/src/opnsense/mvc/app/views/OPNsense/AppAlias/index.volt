@@ -88,7 +88,8 @@
             latPf: "{{ lang._('pf')|escape_js }}",
             latNone: "{{ lang._('no measurement yet')|escape_js }}",
             latSamples: "{{ lang._('samples')|escape_js }}",
-            upDotPort53: "{{ lang._('DNS over TLS on port 53: DNS over TLS servers listen on port 853 (Quad9: 9.9.9.9, port 853, TLS name dns.quad9.net). Change the upstream port, then Save and apply.')|escape_js }}",
+            upPort853: "{{ lang._('Port set to 853 for DNS over TLS')|escape_js }}",
+            upPort53: "{{ lang._('Port set to 53 for plain DNS')|escape_js }}",
             ubRootWarn: "{{ lang._('While the relay is down, forwarded domains fall back to direct recursion and bypass DNS over TLS (and the . Query Forwarding). If outgoing port 53 is blocked, they fail until the relay is back.')|escape_js }}",
             commit: "{{ lang._('commit')|escape_js }}"
         };
@@ -215,7 +216,59 @@
         mapDataToFormUI({'frm_general_settings': "/api/appalias/settings/get"}).done(function () {
             formatTokenizersUI();
             $('.selectpicker').selectpicker('refresh');
+            // Liés après le chargement : un change() émis pendant le remplissage
+            // du formulaire ne doit ni modifier le port ni afficher de note.
+            $upProto.on('change', onUpstreamProtocolChange);
+            $upAddr.on('change', prefillTlsName);
         });
+
+        // --- Réglages : port et nom TLS suivent le protocole de l'amont ---
+        // Résolveurs publics connus -> nom TLS (IPv4 et IPv6, minuscules).
+        const DOT_NAMES = {
+            '9.9.9.9': 'dns.quad9.net',
+            '149.112.112.112': 'dns.quad9.net',
+            '2620:fe::fe': 'dns.quad9.net',
+            '2620:fe::9': 'dns.quad9.net',
+            '1.1.1.1': 'cloudflare-dns.com',
+            '1.0.0.1': 'cloudflare-dns.com',
+            '2606:4700:4700::1111': 'cloudflare-dns.com',
+            '2606:4700:4700::1001': 'cloudflare-dns.com',
+            '8.8.8.8': 'dns.google',
+            '8.8.4.4': 'dns.google',
+            '2001:4860:4860::8888': 'dns.google',
+            '2001:4860:4860::8844': 'dns.google'
+        };
+        const $upProto = $('[id="appalias.general.upstream_protocol"]');
+        const $upAddr = $('[id="appalias.general.upstream_address"]');
+        const $upPort = $('[id="appalias.general.upstream_port"]');
+        const $upTls = $('[id="appalias.general.upstream_tls_name"]');
+        const $upNote = $('<div id="upstream-port-note" class="help-block" style="display: none"></div>');
+        $upPort.after($upNote);
+
+        function prefillTlsName() {
+            if ($upProto.val() !== 'dot' || $.trim($upTls.val()) !== '') {
+                return;
+            }
+            let addr = $.trim($upAddr.val()).toLowerCase().replace(/^\[|\]$/g, '');
+            if (Object.prototype.hasOwnProperty.call(DOT_NAMES, addr)) {
+                $upTls.val(DOT_NAMES[addr]);
+            }
+        }
+
+        function onUpstreamProtocolChange() {
+            let port = $.trim($upPort.val());
+            $upNote.empty().hide();
+            if ($upProto.val() === 'dot') {
+                if (port === '' || port === '53') {
+                    $upPort.val('853');
+                    $upNote.text(T.upPort853).show();
+                }
+                prefillTlsName();
+            } else if ($upProto.val() === 'dns' && port === '853') {
+                $upPort.val('53');
+                $upNote.text(T.upPort53).show();
+            }
+        }
 
         $("#saveAct").click(function () {
             saveFormToEndpoint("/api/appalias/settings/set", 'frm_general_settings', function () {
@@ -295,12 +348,8 @@
             ajaxGet('/api/appalias/service/unboundStatus', {}, function (data, status) {
                 data = data || {};
                 let upstream = $('#upstream-summary').empty().hide();
-                let upWarn = $('#upstream-port-warning').empty().hide();
                 if (data.upstream_protocol === 'dot') {
                     upstream.text(T.upDot + (data.upstream_tls_name ? ' (' + String(data.upstream_tls_name) + ')' : '')).show();
-                    if (parseInt(data.upstream_port) === 53) {
-                        upWarn.text(T.upDotPort53).show();
-                    }
                 } else if (data.upstream_protocol === 'dns') {
                     upstream.text(T.upPlain).show();
                 }
@@ -832,7 +881,6 @@
                 <div class="panel-body">
                     <p id="upstream-summary" style="display: none"></p>
                     <p id="latency-summary" class="text-muted" style="display: none"></p>
-                    <div id="upstream-port-warning" class="alert alert-warning" style="display: none" role="alert"></div>
                     <p id="unbound-summary" class="text-muted"></p>
                     <div id="unbound-root-warning" class="alert alert-warning" style="display: none" role="alert"></div>
                     <div id="unbound-errors" class="alert alert-warning" style="display: none" role="alert"></div>

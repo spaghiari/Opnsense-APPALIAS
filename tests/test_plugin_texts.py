@@ -125,9 +125,17 @@ class ModelTests(unittest.TestCase):
         self.assertIn("$('#catalog-diff-warning').text(T.diffRefused", volt)
         self.assertNotIn("$('#catalog-diff-error').text(T.diffRefused", volt)
 
+    def test_volt_dot_port_prefill(self):
+        volt = read(os.path.join(MVC, "views", "OPNsense", "AppAlias", "index.volt"))
+        self.assertIn("lang._('Port set to 853 for DNS over TLS')|escape_js", volt)
+        self.assertIn("$upNote.text(T.upPort853)", volt)
+        for name in ("dns.quad9.net", "cloudflare-dns.com", "dns.google", "2620:fe::fe",
+                     "2606:4700:4700::1001", "2001:4860:4860::8844"):
+            self.assertIn(name, volt)
+
     def test_plugin_version(self):
-        self.assertRegex(read(os.path.join(PLUGIN, "Makefile")), r"PLUGIN_VERSION=\s+0\.4\n")
-        self.assertIn("\n0.4\n", read(os.path.join(PLUGIN, "pkg-descr")))
+        self.assertRegex(read(os.path.join(PLUGIN, "Makefile")), r"PLUGIN_VERSION=\s+0\.4\.1\n")
+        self.assertIn("\n0.4.1\n", read(os.path.join(PLUGIN, "pkg-descr")))
 
 
 class ActionTests(unittest.TestCase):
