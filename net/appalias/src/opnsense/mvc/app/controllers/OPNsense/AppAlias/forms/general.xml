@@ -21,7 +21,7 @@
         <id>appalias.general.upstream_address</id>
         <label>Résolveur amont</label>
         <type>text</type>
-        <help>Adresse IP du résolveur auquel le relais transmet chaque requête telle quelle. Obligatoire, sans valeur par défaut.</help>
+        <help>Adresse IP du résolveur auquel le relais transmet chaque requête telle quelle. Obligatoire quand le service est activé.</help>
     </field>
     <field>
         <id>appalias.general.upstream_port</id>

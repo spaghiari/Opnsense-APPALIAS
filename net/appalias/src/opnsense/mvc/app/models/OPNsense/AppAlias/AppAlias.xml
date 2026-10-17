@@ -21,7 +21,7 @@
             </listen_port>
             <upstream_address type="NetworkField">
                 <WildcardEnabled>N</WildcardEnabled>
-                <Required>Y</Required>
+                <Required>N</Required>
                 <NetMaskAllowed>N</NetMaskAllowed>
                 <ValidationMessage>Indiquer l'adresse IP du résolveur amont.</ValidationMessage>
             </upstream_address>

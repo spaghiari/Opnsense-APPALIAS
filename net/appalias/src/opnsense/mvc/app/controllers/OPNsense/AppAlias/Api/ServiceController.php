@@ -64,6 +64,11 @@ class ServiceController extends ApiMutableServiceControllerBase
         if (!isset($data['apps']) || !is_array($data['apps'])) {
             $data['apps'] = [];
         }
+        $data['widget'] = [
+            'caption_restart' => gettext('Restart'),
+            'caption_start' => gettext('Start'),
+            'caption_stop' => gettext('Stop'),
+        ];
         return $data;
     }
 
@@ -76,25 +81,41 @@ class ServiceController extends ApiMutableServiceControllerBase
         if (!$this->request->isPost()) {
             return ['status' => 'failed'];
         }
-        $this->sessionClose();
         $backend = new Backend();
         $mdl = new \OPNsense\AppAlias\AppAlias();
         $enabled = (string)$mdl->general->enabled == '1';
 
-        $backend->configdpRun('template reload', [static::$internalServiceTemplate]);
-        $backend->configdRun('appalias export');
-        $backend->configdRun('appalias sync');
+        // Les actions configd de type « script » renvoient « OK » en cas de succès.
+        $templateResult = trim($backend->configdpRun('template reload', [static::$internalServiceTemplate]));
+        if ($templateResult !== 'OK') {
+            throw new \OPNsense\Base\UserException(sprintf(
+                gettext('Template generation failed for internal service "%s". See backend log for details.'),
+                static::$internalServiceName
+            ), gettext('Configuration exception'));
+        }
+        foreach (['export', 'sync'] as $step) {
+            if (trim($backend->configdRun('appalias ' . $step)) !== 'OK') {
+                return [
+                    'status' => 'failed',
+                    'status_msg' => sprintf(gettext('AppAlias : l\'étape « %s » a échoué, voir le journal.'), $step),
+                ];
+            }
+        }
 
         if (!$enabled) {
-            $backend->configdRun('appalias stop');
-            return ['status' => 'ok'];
+            $res = $backend->configdRun('appalias stop');
+            return ['status' => trim($res) === 'OK' ? 'ok' : 'failed'];
         }
         $status = $this->statusAction();
         if (($status['status'] ?? '') == 'running') {
-            $backend->configdRun('appalias reload');
+            $res = $backend->configdRun('appalias reload');
+            if (trim($res) !== 'OK') {
+                // Fenêtre de relance de daemon(8) : superviseur présent, fils absent.
+                $res = $backend->configdRun('appalias restart');
+            }
         } else {
-            $backend->configdRun('appalias start');
+            $res = $backend->configdRun('appalias start');
         }
-        return ['status' => 'ok'];
+        return ['status' => trim($res) === 'OK' ? 'ok' : 'failed'];
     }
 }

@@ -79,7 +79,7 @@ class PfTableTests(unittest.TestCase):
 class ConfigTests(unittest.TestCase):
     def test_upstream_required(self):
         with self.assertRaises(cfgmod.ConfigError):
-            cfgmod.from_dict({"general": {"upstream_address": ""}})
+            cfgmod.from_dict({"general": {"enabled": True, "upstream_address": ""}})
 
     def test_wildcard_any_rejected(self):
         base = {"upstream_address": "192.0.2.53"}

@@ -69,9 +69,38 @@ function appalias_services()
 function appalias_configure()
 {
     return [
-        'bootup' => ['appalias_configure_do'],
+        'bootup' => ['appalias_configure_boot'],
         'appalias' => ['appalias_configure_do'],
     ];
+}
+
+/**
+ * Journal dédié : /var/log/appalias/appalias_<date>.log, affiché dans
+ * Système > Journaux > Fichiers > AppAlias (/ui/diagnostics/log/core/appalias).
+ * Même forme que dnsmasq_syslog() et ntpd_syslog() du core 26.7 :
+ * clé = nom du journal, 'facility' = liste d'identifiants syslog (ident).
+ */
+function appalias_syslog()
+{
+    $logfacilities = [];
+    $logfacilities['appalias'] = [
+        'facility' => ['appalias'],
+    ];
+
+    return $logfacilities;
+}
+
+/**
+ * Au démarrage : rc.d démarre déjà le démon (appaliasd_enable=YES) et exporte
+ * config.json avant de le lancer. On réexporte seulement, et on envoie un
+ * rechargement (SIGHUP) si, et seulement si, le démon tourne déjà.
+ */
+function appalias_configure_boot($verbose = false)
+{
+    mwexecf(APPALIAS_SCRIPTS . '/export_config.php');
+    if (appalias_enabled() && mwexecf('/usr/local/etc/rc.d/appaliasd onestatus', [], true) == 0) {
+        mwexecf('/usr/local/etc/rc.d/appaliasd onereload');
+    }
 }
 
 /**
@@ -132,8 +161,39 @@ function appalias_firewall($fw)
     $mdl = new \OPNsense\AppAlias\AppAlias();
     $prefix = (string)$mdl->general->alias_prefix;
     $aliasModel = new \OPNsense\Firewall\Alias();
-    $created = [];
+    $created = appalias_add_missing($mdl, $aliasModel, $prefix);
 
+    if (count($created) == 0) {
+        return;
+    }
+
+    // Détection rapide ci-dessus (hors verrou) : on reconstruit tout sous verrou.
+    $cfgObj = \OPNsense\Core\Config::getInstance();
+    $cfgObj->lock();
+    try {
+        $mdl = new \OPNsense\AppAlias\AppAlias();
+        $prefix = (string)$mdl->general->alias_prefix;
+        $aliasModel = new \OPNsense\Firewall\Alias();
+        $created = appalias_add_missing($mdl, $aliasModel, $prefix);
+        if (count($created) > 0) {
+            $aliasModel->serializeToConfig();
+            $cfgObj->save();
+        }
+    } finally {
+        $cfgObj->unlock();
+    }
+    if (count($created) > 0) {
+        // Pas d'openlog : l'ident syslog du processus du core reste inchangé.
+        syslog(LOG_NOTICE, sprintf('appalias: alias recréés : %s', implode(' ', $created)));
+    }
+}
+
+/**
+ * Ajoute au modèle les alias gérés manquants ; renvoie les noms ajoutés.
+ */
+function appalias_add_missing($mdl, $aliasModel, $prefix)
+{
+    $created = [];
     foreach ($mdl->apps->app->iterateItems() as $app) {
         $name = $prefix . (string)$app->name;
         if (!preg_match('/^[A-Za-z0-9_]{1,31}$/', $name)) {
@@ -144,9 +204,5 @@ function appalias_firewall($fw)
         }
     }
 
-    if (count($created) > 0) {
-        $aliasModel->serializeToConfig();
-        \OPNsense\Core\Config::getInstance()->save();
-        syslog(LOG_NOTICE, sprintf('appalias: alias recréés : %s', implode(' ', $created)));
-    }
+    return $created;
 }

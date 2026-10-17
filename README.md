@@ -73,7 +73,7 @@ La règle IPv6 évite la fuite hors du VPN.
   prochaine résolution.
 - **Écoute** : laisser le relais sur `127.0.0.1` (défaut). Ouvert au LAN, un
   client pourrait remplir les alias jusqu'au plafond par application.
-- **État MVP (0.1)** : sources ASN, catalogue d'applications, règles
+- **État actuel (0.2)** : sources ASN, catalogue d'applications, règles
   `keyword:` et `regexp:` ne sont pas encore disponibles.
 
 ## Contribuer, sécurité, licence

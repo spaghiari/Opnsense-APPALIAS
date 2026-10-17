@@ -39,6 +39,9 @@ use OPNsense\AppAlias\AppAlias;
 const APPALIAS_DIR = '/var/db/appalias';
 const APPALIAS_CONFIG = '/var/db/appalias/config.json';
 
+// Ident « appalias » pour que les messages aboutissent dans le journal dédié.
+openlog('appalias', LOG_PID, LOG_DAEMON);
+
 $mdl = new AppAlias();
 $gen = $mdl->general;
 

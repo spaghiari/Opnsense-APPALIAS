@@ -197,6 +197,21 @@ class AppAlias extends BaseModel
             }
         }
 
+        // Le champ n'est plus Required dans le modèle (la migration d'installation
+        // enregistre les valeurs par défaut) : contrôle porté ici.
+        if (
+            $validateFullModel ||
+            $general->enabled->isFieldChanged() ||
+            $general->upstream_address->isFieldChanged()
+        ) {
+            if ((string)$general->enabled === '1' && trim((string)$general->upstream_address) === '') {
+                $messages->appendMessage(new Message(
+                    gettext('Résolveur amont obligatoire quand le service est activé'),
+                    $general->upstream_address->__reference
+                ));
+            }
+        }
+
         $prefix = (string)$general->alias_prefix;
         $prefixChanged = $general->alias_prefix->isFieldChanged();
         $aliases = null;

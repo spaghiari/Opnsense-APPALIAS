@@ -71,6 +71,10 @@ function appalias_flush_table($name)
 
 $noReload = in_array('--no-reload', $argv ?? [], true);
 
+/* Verrou de config.xml pendant la lecture, la modification et l'enregistrement. */
+Config::getInstance()->lock();
+try {
+
 $mdl = new AppAlias();
 $aliasMdl = new Alias();
 $prefix = (string)$mdl->general->alias_prefix;
@@ -161,6 +165,7 @@ if ($aliasChanged || $appChanged) {
             foreach ($messages as $message) {
                 appalias_log(LOG_ERR, 'appalias: alias refusé : ' . $message->getField() . ' : ' . $message->getMessage());
             }
+            Config::getInstance()->unlock();
             exit(1);
         }
         $aliasMdl->serializeToConfig();
@@ -169,6 +174,9 @@ if ($aliasChanged || $appChanged) {
         $mdl->serializeToConfig(false, true);
     }
     Config::getInstance()->save();
+}
+} finally {
+    Config::getInstance()->unlock();
 }
 
 if (!$noReload) {

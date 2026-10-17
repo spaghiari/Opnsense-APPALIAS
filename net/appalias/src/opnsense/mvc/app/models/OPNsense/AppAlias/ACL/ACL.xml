@@ -4,6 +4,8 @@
         <patterns>
             <pattern>ui/appalias/*</pattern>
             <pattern>api/appalias/*</pattern>
+            <pattern>ui/diagnostics/log/core/appalias*</pattern>
+            <pattern>api/diagnostics/log/core/appalias/*</pattern>
         </patterns>
     </page-services-appalias>
 </acl>

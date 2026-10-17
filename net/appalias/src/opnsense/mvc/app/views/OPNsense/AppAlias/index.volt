@@ -27,11 +27,22 @@
 <script>
     $( document ).ready(function () {
         let appStatus = {};
+        let firstStatus = true;
+        let gridLoaded = false;
 
-        function refreshStatus() {
+        function refreshStatus(reloadGrid) {
             ajaxGet('/api/appalias/service/status', {}, function (data, status) {
                 appStatus = (data && data.apps) ? data.apps : {};
-                $("#grid-apps").bootgrid('reload');
+                // Premier statut : la grille a pu être rendue avant (course), la recharger une fois.
+                if (firstStatus) {
+                    firstStatus = false;
+                    if (gridLoaded && !reloadGrid) {
+                        reloadGrid = true;
+                    }
+                }
+                if (reloadGrid) {
+                    $("#grid-apps").bootgrid('reload');
+                }
             });
         }
 
@@ -51,14 +62,20 @@
                         }
                         let text = parseInt(st.v4 || 0) + ' / ' + parseInt(st.v6 || 0);
                         if (st.last_error) {
-                            return '<span class="text-danger" title="' +
-                                $('<div/>').text(st.last_error.message || '').html() + '">' +
-                                text + ' <i class="fa fa-exclamation-triangle"></i></span>';
+                            return $('<span class="text-danger"></span>')
+                                .attr('title', st.last_error.message || '')
+                                .text(text + ' ')
+                                .append('<i class="fa fa-exclamation-triangle"></i>')
+                                .prop('outerHTML');
                         }
                         return text;
                     }
                 }
             }
+        });
+
+        $("#grid-apps").on('loaded.rs.jquery.bootgrid', function () {
+            gridLoaded = true;
         });
 
         mapDataToFormUI({'frm_general_settings': "/api/appalias/settings/get"}).done(function () {
@@ -75,7 +92,7 @@
         $("#reconfigureAct").SimpleActionButton({
             onAction: function (data, status) {
                 updateServiceControlUI('appalias');
-                refreshStatus();
+                refreshStatus(true);
             }
         });
 

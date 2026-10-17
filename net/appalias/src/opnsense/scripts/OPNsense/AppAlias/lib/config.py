@@ -218,12 +218,16 @@ def from_dict(data):
     if not 1 <= listen_port <= 65535:
         raise ConfigError("listen_port hors plage (1-65535) : %s" % gen.get("listen_port"))
 
+    enabled = as_bool(gen.get("enabled"), False)
     upstream_address = str(gen.get("upstream_address") or "").strip()
-    if not upstream_address:
-        raise ConfigError("upstream_address est obligatoire")
-    reject_wildcard(upstream_address, "upstream_address")
     upstream_port = as_int(gen.get("upstream_port"), 53, 1, 65535)
-    upstreams = [parse_hostport(upstream_address, upstream_port)]
+    upstreams = []
+    if upstream_address:
+        reject_wildcard(upstream_address, "upstream_address")
+        upstreams.append(parse_hostport(upstream_address, upstream_port))
+    elif enabled:
+        raise ConfigError("upstream_address est obligatoire quand le service est activé")
+    # service désactivé : amont vide toléré (valeur par défaut du modèle)
     for item in as_list(gen.get("upstream_fallback")):
         upstreams.append(parse_hostport(item))
 
@@ -266,7 +270,7 @@ def from_dict(data):
         ))
 
     return Config(
-        enabled=as_bool(gen.get("enabled"), False),
+        enabled=enabled,
         listen_address=listen_address,
         listen_port=listen_port,
         upstreams=upstreams,

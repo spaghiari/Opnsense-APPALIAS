@@ -18,6 +18,25 @@ WWW: https://github.com/spaghiari/Opnsense-APPALIAS
 Plugin Changelog
 ================
 
+0.2
+
+* Correctif de migration à l'installation : upstream_address n'est plus
+  obligatoire dans le modèle (contrôle déplacé dans la validation, requis
+  seulement quand le service est activé).
+* Nouvelle page Journal (Services > AppAlias > Journal).
+* Reconfiguration : le résultat de chaque appel configd est vérifié
+  (template, export, synchronisation, démarrage, rechargement).
+* Statut : ajout des libellés du widget (Restart, Start, Stop).
+* Synchronisation des alias et recréation des alias manquants sous verrou
+  de config.xml.
+* Démarrage du système : plus de double démarrage du démon, l'événement
+  bootup exporte la configuration et recharge le démon s'il tourne déjà.
+* Infobulle d'erreur de la grille échappée (construction jQuery) ; la
+  grille n'est plus rechargée en double au chargement de la page.
+* Suppression de sessionClose() dans ServiceController (inutile avec le
+  noyau 26.7, la session est libérée à la construction).
+* Aide du champ upstream_address : « Obligatoire quand le service est activé ».
+
 0.1
 
 * Première version (MVP) : relais DNS, règles domain:/full:, CIDR manuels.
