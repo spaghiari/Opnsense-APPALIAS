@@ -11,3 +11,6 @@ dist/
 !tests/fixtures/tls/*.key
 # banc de prévisualisation de l'interface (généré par tools/ui-preview/build.py)
 tools/ui-preview/out/
+
+# notes de projet locales (specs, brouillons, captures) : jamais publiées
+/.project/
