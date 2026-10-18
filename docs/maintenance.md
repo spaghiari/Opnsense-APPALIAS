@@ -108,9 +108,9 @@ git ls-remote https://github.com/opnsense/plugins refs/heads/stable/26.1 refs/he
 
 ## Catalogue v2fly (instantané embarqué)
 
-Le pare-feu ne télécharge jamais rien : le catalogue est un instantané de
-[v2fly/domain-list-community](https://github.com/v2fly/domain-list-community)
-embarqué dans le paquet, sous
+Le paquet embarque un instantané de
+[v2fly/domain-list-community](https://github.com/v2fly/domain-list-community),
+référence des releases et du mode hors ligne, sous
 `net/appalias/src/opnsense/scripts/OPNsense/AppAlias/catalog/` :
 
 - `v2fly.lst` : une section `[liste]` par liste, lignes triées, commentaires
@@ -171,8 +171,10 @@ python3 -I tools/v2fly-snapshot.py --commit <sha1> --sha256 <archive_sha256> \
 4. Contrôler la taille signalée (plafond ~1,5 Mo, le script échoue au-delà
    sauf `--max-bytes`), relire le diff de `v2fly.lst` (listes ajoutées ou
    retirées), lancer les tests, puis commiter via une PR. Après la mise à
-   jour du plugin, chaque application importée affiche ses « catalog
-   updates » à valider dans sa modale de diff.
+   jour du plugin, les applications qui suivent le catalogue reçoivent les
+   nouveautés (`catalog_follow.php run` lancé par `+POST_INSTALL`) ; les
+   autres affichent leurs « catalog updates » à valider dans la modale de
+   diff.
 
 ## Tests manuels côté PHP
 
@@ -291,6 +293,56 @@ installation (`tools/install-copy.sh`) :
       `nobody` ; *Revert to embedded* revient à « Embedded snapshot » ;
     - après `pkg upgrade`, `+POST_INSTALL` rend la main tout de suite (mise à
       jour du catalogue en tâche de fond, sous `daemon -f`).
+12. Version 0.6 (modèle 0.5.0) :
+    - migration : config 0.5 avec une application importée (`catalog_refs`
+      non vide) et une application manuelle. Après installation, la page se
+      charge ; l'application importée a `catalog_follow=1` et
+      `catalog_declined` = règles de ses listes absentes de `domains`
+      (règles décochées à l'import) ; l'application manuelle a
+      `catalog_follow=0`. Catalogue illisible pendant la migration :
+      `catalog_follow=0` et un avertissement dans le journal ;
+    - boîte de dialogue : la case *Follow catalog automatically* n'apparaît
+      que pour une application avec des listes du catalogue ; pastille
+      `auto` dans la grille, plus de lien « N catalog updates » pour elle ;
+      case décochée puis Save : le lien revient ;
+    - import d'une liste avec des règles décochées : `catalog_follow=1`,
+      `catalog_declined` contient les règles décochées ;
+    - suivi : retirer une règle de `catalog_rules` à la main dans
+      config.xml (simule une nouveauté du catalogue), puis
+      `configctl appalias catalog_follow` : JSON `result: updated`, la règle
+      revient dans `domains`, `/var/db/appalias/catalog_follow.json` a une
+      entrée, le journal `appalias` une ligne info, l'alias est synchronisé
+      et le relais rechargé (`onereload`), Unbound redémarré seulement si les
+      zones changent. Les règles ajoutées à la main restent ; une règle
+      décochée à l'import (dans `catalog_declined`), une règle `full:` sur une
+      plateforme partagée, une `keyword:` ou une règle ignorée par la
+      découverte ne sont pas ajoutées. Second appel : `result: unchanged` ;
+    - retrait : ajouter `domain:obsolete.example` à `domains` et à
+      `catalog_rules`, puis `configctl appalias catalog_follow` : retirée ;
+      ajoutée seulement à `domains` (règle manuelle) : gardée ;
+    - plafond : application à 1000 règles et une nouveauté : rien n'est
+      appliqué, avertissement « plafond » dans le journal, `errors: 1` ;
+    - liste disparue du catalogue (`catalog_refs` inconnu) : l'application
+      n'est pas modifiée, erreur journalisée, les autres le sont ;
+    - *Update catalog now* : le message indique le nombre d'applications
+      mises à jour ; la section *Automatic updates* liste l'entrée (date,
+      application, +N/-M, détail dépliable) ;
+    - *Undo* : confirmation, règles ajoutées retirées et ajoutées à
+      `catalog_declined`, règles retirées remises dans `domains` seulement
+      (règles manuelles), application appliquée, entrée inverse « undo » au
+      journal, entrée d'origine marquée « undone ». Nouveau
+      `configctl appalias catalog_follow` : rien ne revient. Application
+      supprimée : bouton grisé, et
+      `configctl appalias catalog_follow_undo <id>` répond « was deleted » ;
+      identifiant `x;id` refusé ;
+    - journal borné : au-delà de 200 entrées, les plus anciennes sortent ;
+    - découverte : une proposition dont la chaîne CNAME passe par un nom de
+      la même application est dans la section repliée « Already covered »,
+      sans *Accept* ni *Ignore*, et n'est comptée ni dans « N proposals » ni
+      dans la pastille de la grille ; *Follow CNAMEs* décoché : elle redevient
+      une proposition ordinaire ;
+    - mise en page : onglets *Discovery* et *Catalog* à 1280 px puis sous
+      768 px (lignes de proposition empilées, galerie sur une colonne).
 
 ## Rotation de clé
 

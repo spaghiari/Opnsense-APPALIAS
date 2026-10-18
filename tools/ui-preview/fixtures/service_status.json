@@ -1,0 +1,65 @@
+{
+  "status": "running",
+  "pid": 4821,
+  "version": "0.6",
+  "installed_version": "0.6",
+  "restart_needed": false,
+  "error": null,
+  "apps": {
+    "5e1b7c42-3a9d-4f60-8c1e-2b7d9a4e6f10": {
+      "uuid": "5e1b7c42-3a9d-4f60-8c1e-2b7d9a4e6f10",
+      "table": "APP_TWITCH",
+      "enabled": true,
+      "v4": 18,
+      "v6": 6,
+      "last_hit": 1792300000.0,
+      "last_error": null
+    },
+    "a7c3d915-6e28-4b0a-9f47-1d5e8b3c2a64": {
+      "uuid": "a7c3d915-6e28-4b0a-9f47-1d5e8b3c2a64",
+      "table": "APP_TeamSpeak",
+      "enabled": true,
+      "v4": 3,
+      "v6": 0,
+      "last_hit": 1792290000.0,
+      "last_error": null
+    },
+    "c9d4e2f8-1b73-4a56-8e09-7f2a6d1b5c38": {
+      "uuid": "c9d4e2f8-1b73-4a56-8e09-7f2a6d1b5c38",
+      "table": "APP_NETFLIX",
+      "enabled": false,
+      "v4": 0,
+      "v6": 0,
+      "last_hit": null,
+      "last_error": null
+    }
+  },
+  "latency": {
+    "window": 256,
+    "upstreams": {
+      "192.0.2.53@853": {
+        "count": 4120,
+        "window": 256,
+        "avg_ms": 11.4,
+        "p95_ms": 28.0
+      },
+      "192.0.2.54@853": {
+        "count": 12,
+        "window": 12,
+        "avg_ms": 14.9,
+        "p95_ms": 31.5
+      }
+    },
+    "pf": {
+      "count": 3810,
+      "window": 256,
+      "avg_ms": 0.4,
+      "p95_ms": 1.1
+    }
+  },
+  "widget": {
+    "caption_restart": "Restart",
+    "caption_start": "Start",
+    "caption_stop": "Stop"
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "rows": [
+    {
+      "uuid": "5e1b7c42-3a9d-4f60-8c1e-2b7d9a4e6f10",
+      "enabled": "1",
+      "name": "TWITCH",
+      "description": "v2fly: twitch",
+      "origin": "v2fly",
+      "domains": "domain:twitch.tv,domain:ttvnw.net,domain:jtvnw.net,domain:twitchcdn.net,domain:twitchsvc.net",
+      "networks": "",
+      "families": "both",
+      "catalog_refs": "twitch",
+      "catalog_follow": "1"
+    },
+    {
+      "uuid": "a7c3d915-6e28-4b0a-9f47-1d5e8b3c2a64",
+      "enabled": "1",
+      "name": "TeamSpeak",
+      "description": "Voice server of the clan",
+      "origin": "manual",
+      "domains": "full:weblist.teamspeak.com,full:accounting.teamspeak.com,domain:ts3index.com",
+      "networks": "192.0.2.10/32,192.0.2.64/28",
+      "families": "inet",
+      "catalog_refs": "",
+      "catalog_follow": "0"
+    },
+    {
+      "uuid": "c9d4e2f8-1b73-4a56-8e09-7f2a6d1b5c38",
+      "enabled": "0",
+      "name": "NETFLIX",
+      "description": "v2fly: netflix",
+      "origin": "v2fly",
+      "domains": "domain:netflix.com,domain:nflxvideo.net,domain:nflximg.net,domain:nflxso.net,domain:nflxext.com",
+      "networks": "",
+      "families": "both",
+      "catalog_refs": "netflix",
+      "catalog_follow": "0"
+    }
+  ],
+  "rowCount": 3,
+  "total": 3,
+  "current": 1
+}

@@ -1,0 +1,180 @@
+{
+  "5e1b7c42-3a9d-4f60-8c1e-2b7d9a4e6f10": {
+    "app": {
+      "enabled": "1",
+      "name": "TWITCH",
+      "description": "v2fly: twitch",
+      "domains": {
+        "domain:twitch.tv": {
+          "value": "domain:twitch.tv",
+          "selected": 1
+        },
+        "domain:ttvnw.net": {
+          "value": "domain:ttvnw.net",
+          "selected": 1
+        },
+        "domain:jtvnw.net": {
+          "value": "domain:jtvnw.net",
+          "selected": 1
+        },
+        "domain:twitchcdn.net": {
+          "value": "domain:twitchcdn.net",
+          "selected": 1
+        },
+        "domain:twitchsvc.net": {
+          "value": "domain:twitchsvc.net",
+          "selected": 1
+        }
+      },
+      "networks": {},
+      "asns": {},
+      "catalog_follow": "1",
+      "catalog_refs": {
+        "twitch": {
+          "value": "twitch",
+          "selected": 1
+        }
+      },
+      "families": {
+        "both": {
+          "value": "IPv4 and IPv6",
+          "selected": 1
+        },
+        "inet": {
+          "value": "IPv4 only",
+          "selected": 0
+        },
+        "inet6": {
+          "value": "IPv6 only",
+          "selected": 0
+        }
+      }
+    }
+  },
+  "a7c3d915-6e28-4b0a-9f47-1d5e8b3c2a64": {
+    "app": {
+      "enabled": "1",
+      "name": "TeamSpeak",
+      "description": "Voice server of the clan",
+      "domains": {
+        "full:weblist.teamspeak.com": {
+          "value": "full:weblist.teamspeak.com",
+          "selected": 1
+        },
+        "full:accounting.teamspeak.com": {
+          "value": "full:accounting.teamspeak.com",
+          "selected": 1
+        },
+        "domain:ts3index.com": {
+          "value": "domain:ts3index.com",
+          "selected": 1
+        }
+      },
+      "networks": {
+        "192.0.2.10/32": {
+          "value": "192.0.2.10/32",
+          "selected": 1
+        },
+        "192.0.2.64/28": {
+          "value": "192.0.2.64/28",
+          "selected": 1
+        }
+      },
+      "asns": {},
+      "catalog_follow": "0",
+      "catalog_refs": {},
+      "families": {
+        "both": {
+          "value": "IPv4 and IPv6",
+          "selected": 0
+        },
+        "inet": {
+          "value": "IPv4 only",
+          "selected": 1
+        },
+        "inet6": {
+          "value": "IPv6 only",
+          "selected": 0
+        }
+      }
+    }
+  },
+  "c9d4e2f8-1b73-4a56-8e09-7f2a6d1b5c38": {
+    "app": {
+      "enabled": "0",
+      "name": "NETFLIX",
+      "description": "v2fly: netflix",
+      "domains": {
+        "domain:netflix.com": {
+          "value": "domain:netflix.com",
+          "selected": 1
+        },
+        "domain:nflxvideo.net": {
+          "value": "domain:nflxvideo.net",
+          "selected": 1
+        },
+        "domain:nflximg.net": {
+          "value": "domain:nflximg.net",
+          "selected": 1
+        },
+        "domain:nflxso.net": {
+          "value": "domain:nflxso.net",
+          "selected": 1
+        },
+        "domain:nflxext.com": {
+          "value": "domain:nflxext.com",
+          "selected": 1
+        }
+      },
+      "networks": {},
+      "asns": {},
+      "catalog_follow": "0",
+      "catalog_refs": {
+        "netflix": {
+          "value": "netflix",
+          "selected": 1
+        }
+      },
+      "families": {
+        "both": {
+          "value": "IPv4 and IPv6",
+          "selected": 1
+        },
+        "inet": {
+          "value": "IPv4 only",
+          "selected": 0
+        },
+        "inet6": {
+          "value": "IPv6 only",
+          "selected": 0
+        }
+      }
+    }
+  },
+  "new": {
+    "app": {
+      "enabled": "1",
+      "name": "",
+      "description": "",
+      "domains": {},
+      "networks": {},
+      "asns": {},
+      "catalog_follow": "0",
+      "catalog_refs": {},
+      "families": {
+        "both": {
+          "value": "IPv4 and IPv6",
+          "selected": 1
+        },
+        "inet": {
+          "value": "IPv4 only",
+          "selected": 0
+        },
+        "inet6": {
+          "value": "IPv6 only",
+          "selected": 0
+        }
+      }
+    }
+  }
+}

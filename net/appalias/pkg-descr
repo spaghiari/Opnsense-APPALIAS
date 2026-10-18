@@ -4,8 +4,11 @@ adds the A/AAAA addresses of the application's domains as they are
 resolved, and CIDR networks can be added by hand. The plugin creates no
 rules: use the aliases in your own block, pass or policy routing rules.
 
-Applications can be imported from an embedded snapshot of
-v2fly/domain-list-community (no download on the firewall).
+Applications can be imported from a snapshot of
+v2fly/domain-list-community, embedded in the package or downloaded daily
+from GitHub (optional). Imported applications follow the catalog
+automatically: new rules are added, rules removed from the catalog are
+removed, each change is logged and can be undone.
 
 License: BSD-2-Clause
 
@@ -17,6 +20,41 @@ WWW: https://github.com/spaghiari/Opnsense-APPALIAS
 
 Plugin Changelog
 ================
+
+0.6
+
+* Catalog follow, per application: "Follow catalog automatically" (on for
+  applications created or merged from the catalog, and for existing
+  applications with catalog lists; off for manual applications). After each
+  successful catalog update (daily, "Update catalog now", package upgrade
+  with a newer embedded catalog), new rules of the catalog lists are added
+  and rules removed from the catalog are removed, then applied without a
+  click (export, alias sync, Unbound zones, relay reload), through the
+  model and its validations. Rules added by hand are never changed; rules
+  unchecked at import, shared platform names, keyword:/regexp: rules,
+  ignored discovery rules and @ads rules excluded by the reference are
+  never added. 1000 rules at most per application: beyond, nothing is
+  applied and the event is logged. An application that fails is not saved
+  and the error is logged; the others are.
+* Journal of automatic changes (/var/db/appalias/catalog_follow.json, last
+  200 changes) and one info log line per changed application. The Catalog
+  tab shows the last 20 changes (date, application, added and removed rules)
+  with an Undo button: added rules are removed and not added again, removed
+  rules come back as rules added by hand, then the change is applied. Undo
+  is refused when the application was deleted.
+* "auto" badge next to the catalog lists in the grid; the manual catalog
+  updates stay available for applications that do not follow the catalog.
+* Discovery: a proposal whose CNAME chain goes through a name of the same
+  application is "already covered" (the relay already adds its addresses):
+  shown in a collapsed section, without Accept or Ignore, and no longer
+  counted in the proposals nor in the grid badge.
+* Layout of the Discovery and Catalog tabs reworked: aligned proposal rows
+  (name and explanation, score and badges, rule and buttons), counters bar,
+  Learn card, catalog cards of equal height, Popular apps gallery, relay
+  badge; stacked under 768 px.
+* Model 0.5.0: catalog_follow and catalog_declined per application
+  (migration: existing applications with catalog lists follow the catalog,
+  and the rules of their lists not imported so far are kept out).
 
 0.5
 

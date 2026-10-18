@@ -1,0 +1,55 @@
+{
+  "entries": [
+    {
+      "id": "9f3a1c7e52b8d046",
+      "time": 1792206900,
+      "app_uuid": "5e1b7c42-3a9d-4f60-8c1e-2b7d9a4e6f10",
+      "app": "TWITCH",
+      "added": [
+        "domain:twitchsvc.net",
+        "full:usher.ttvnw.net",
+        "full:gql.twitch.tv"
+      ],
+      "removed": [
+        "full:old-edge.ttvnw.net"
+      ],
+      "revision": "3f9a1c07d2e84b5a6c10f7e9b2d4a8c5e1f03b67",
+      "kind": "follow",
+      "undo_of": null,
+      "undone_by": null,
+      "app_exists": true
+    },
+    {
+      "id": "4be07d91a3c5f268",
+      "time": 1792034700,
+      "app_uuid": "5e1b7c42-3a9d-4f60-8c1e-2b7d9a4e6f10",
+      "app": "TWITCH",
+      "added": [],
+      "removed": [
+        "full:pubster.twitch.tv"
+      ],
+      "revision": "b81d0e5c9a2f47630d1e8a5b7c294f6013ae5d92",
+      "kind": "undo",
+      "undo_of": "c15e8a30d7f94b62",
+      "undone_by": null,
+      "app_exists": true
+    },
+    {
+      "id": "c15e8a30d7f94b62",
+      "time": 1792034100,
+      "app_uuid": "5e1b7c42-3a9d-4f60-8c1e-2b7d9a4e6f10",
+      "app": "TWITCH",
+      "added": [
+        "full:pubster.twitch.tv"
+      ],
+      "removed": [],
+      "revision": "b81d0e5c9a2f47630d1e8a5b7c294f6013ae5d92",
+      "kind": "follow",
+      "undo_of": null,
+      "undone_by": "4be07d91a3c5f268",
+      "app_exists": true
+    }
+  ],
+  "total": 3,
+  "max": 200
+}

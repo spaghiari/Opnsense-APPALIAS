@@ -42,6 +42,14 @@ Barème, par (nom non couvert, application A), plafonné à 100 :
 - keyword / regexp 35 : une règle keyword: ou regexp: de A correspond.
 
 Affiché à partir de SHOW_MIN, « strong » à partir de STRONG_MIN.
+
+« Already covered » (covered=True) : avec follow_cname (réglage par
+défaut), une proposition dont une chaîne CNAME passe par un nom couvert par
+la même application (raison « chain ») est déjà alimentée : le relais ajoute
+à l'alias les adresses de toute la chaîne. Elle reste dans la liste pour
+l'information, mais n'est comptée ni dans les propositions ni dans la
+pastille de la grille (counts), et l'interface ne propose ni Accept ni
+Ignore.
 Explications : codes structurés ({"code": "chain", "name": ...}), traduits
 par l'interface.
 
@@ -346,10 +354,26 @@ def v2fly_lists(name, domains_index, imported):
     return out[:MAX_V2FLY_LISTS]
 
 
-def build(data, apps, platforms, suffixes, domains_index=None, ignored=None, now=None):
+def is_covered(reasons, follow_cname=True):
+    """Vrai si les adresses du nom sont déjà ajoutées par la chaîne CNAME."""
+    return bool(follow_cname) and any(r.get("code") == "chain" for r in reasons)
+
+
+def count_useful(proposals):
+    """Propositions utiles (hors « already covered ») par application."""
+    counts = {}
+    for item in proposals:
+        if not item.get("covered"):
+            counts[item["app_uuid"]] = counts.get(item["app_uuid"], 0) + 1
+    return counts
+
+
+def build(data, apps, platforms, suffixes, domains_index=None, ignored=None, now=None,
+          follow_cname=True):
     """Propositions et noms non attribués à partir de discovery.json.
 
-    apps : [AppRules] ; ignored : objet avec match(nom) (lib.discovery.Ignored).
+    apps : [AppRules] ; ignored : objet avec match(nom) (lib.discovery.Ignored) ;
+    follow_cname : réglage du relais (classement « already covered »).
     """
     domains_index = domains_index or {}
     names = data.get("names") or {}
@@ -383,7 +407,8 @@ def build(data, apps, platforms, suffixes, domains_index=None, ignored=None, now
                 if points < SHOW_MIN:
                     continue
                 item = dict(common, app_uuid=app.uuid, app=app.name, score=points,
-                            strong=points >= STRONG_MIN, reasons=reasons)
+                            strong=points >= STRONG_MIN, reasons=reasons,
+                            covered=is_covered(reasons, follow_cname))
                 proposals.append(item)
             if best < SHOW_MIN:
                 item = dict(common, v2fly=v2fly_lists(name, domains_index, imported))

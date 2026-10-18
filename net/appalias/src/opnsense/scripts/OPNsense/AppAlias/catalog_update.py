@@ -56,8 +56,13 @@ manifeste).
 Contrôle de cohérence avant remplacement : au moins MIN_LISTS listes, tous
 les noms de popular.json présents, aucune liste cassée. En cas d'échec, le
 catalogue précédent est gardé et l'erreur journalisée. Un verrou empêche deux
-exécutions simultanées. Rien n'est appliqué aux applications : les
-nouveautés apparaissent dans les « catalog updates » à valider.
+exécutions simultanées.
+
+Après une mise à jour réussie (« updated »), main() lance catalog_follow.php
+run en tâche détachée (daemon -f, sans timeout : clé « follow » = started) :
+les applications qui suivent le catalogue (catalog_follow=1) reçoivent
+les nouveautés et sont appliquées, le détail est dans le journal du suivi ; pour les
+autres, les nouveautés apparaissent dans les « catalog updates » à valider.
 """
 
 import base64
@@ -90,6 +95,9 @@ CHILD_TIMEOUT = 300
 MIN_LISTS = 500
 UNPRIVILEGED = "nobody"
 LOCK_PATH = "/var/db/appalias/catalog_update.lock"
+FOLLOW_SCRIPT = "/usr/local/opnsense/scripts/OPNsense/AppAlias/catalog_follow.php"
+DAEMON = "/usr/sbin/daemon"
+FOLLOW_LAUNCH_TIMEOUT = 30
 FILES = (catmod.LST_NAME, catmod.MANIFEST_NAME, catmod.LICENSE_NAME)
 MAX_LICENSE = 64 * 1024
 # .lst en base64 (4/3) + licence, manifeste et enveloppe JSON : 128 Ko.
@@ -523,7 +531,28 @@ def online_enabled(config_path="/var/db/appalias/config.json"):
     return value is not False and str(value).strip().lower() not in ("0", "false", "no", "off")
 
 
-def main(argv=None):
+def run_follow(script=FOLLOW_SCRIPT, run=subprocess.run, timeout=FOLLOW_LAUNCH_TIMEOUT, daemon=DAEMON):
+    """Suivi automatique après une mise à jour : lance catalog_follow.php run
+    en tâche détachée (daemon -f) puis rend la main ; renvoie
+    {"result": "started"}, ou None si le script n'est pas installé (tests).
+
+    Pas d'attente ni de timeout sur le suivi lui-même : un timeout tuerait le
+    script entre l'enregistrement de config.xml et l'écriture du journal
+    (modifications appliquées mais invisibles et non annulables). Détaché, le
+    script va toujours au bout ; le résultat est dans le journal du suivi et
+    syslog. Le délai ne couvre que le lancement de daemon(8)."""
+    if not os.path.isfile(script):
+        return None
+    try:
+        run([daemon, "-f", script, "run"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, timeout=timeout, check=True)
+    except (OSError, subprocess.SubprocessError) as exc:
+        log_error("automatic catalog follow could not be started: %s" % exc)
+        return {"result": "failed", "error": str(exc) or type(exc).__name__}
+    return {"result": "started"}
+
+
+def main(argv=None, follow=run_follow):
     argv = sys.argv[1:] if argv is None else argv
     try:
         if argv[:1] == ["--child"] and len(argv) == 6:
@@ -536,6 +565,10 @@ def main(argv=None):
             out = reset()
         else:
             out = {"result": "failed", "error": "usage: catalog_update.py update | reset"}
+        if out.get("result") == "updated":
+            followed = follow()
+            if followed is not None:
+                out["follow"] = followed
     except (UpdateError, OSError, UnicodeDecodeError, AttributeError, ValueError, KeyError,
             TypeError) as exc:
         # sortie JSON d'erreur, jamais de trace

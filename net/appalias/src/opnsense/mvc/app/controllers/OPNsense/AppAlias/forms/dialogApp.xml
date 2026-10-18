@@ -41,6 +41,12 @@
         <help>Planned for a later version: saved but not used yet.</help>
     </field>
     <field>
+        <id>app.catalog_follow</id>
+        <label>Follow catalog automatically</label>
+        <type>checkbox</type>
+        <help>After each catalog update, new rules of the catalog lists of this application are added and rules removed from the catalog are removed, then applied without a click. Rules added by hand are never changed. Each change is listed in the Catalog tab (Automatic updates) and can be undone. Unchecked: changes wait in the catalog updates to review.</help>
+    </field>
+    <field>
         <id>app.families</id>
         <label>Address families</label>
         <type>dropdown</type>

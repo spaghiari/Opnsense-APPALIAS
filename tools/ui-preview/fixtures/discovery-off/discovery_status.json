@@ -1,0 +1,19 @@
+{
+  "enabled": false,
+  "exported": false,
+  "data": false,
+  "saved": null,
+  "observed": 0,
+  "uncovered": 0,
+  "proposals": 0,
+  "covered": 0,
+  "unassigned": 0,
+  "dropped": 0,
+  "retention_days": 7,
+  "window": 5,
+  "learn": null,
+  "counts": {},
+  "ignored": [],
+  "regex_timeout": false,
+  "error": null
+}

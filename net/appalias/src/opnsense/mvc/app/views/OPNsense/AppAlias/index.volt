@@ -25,20 +25,135 @@
  #}
 
 <style>
-    .appalias-card { margin-bottom: 10px; }
-    .appalias-card .panel-body { padding: 10px; }
-    .appalias-card .label { margin-right: 3px; }
+    /* Aperçu d'une liste du catalogue */
     .appalias-rules { max-height: 50vh; overflow-y: auto; }
     .appalias-rules .checkbox { margin: 2px 0; }
     .appalias-rules .label { margin-left: 4px; }
     .appalias-discovery { color: #999; }
     .appalias-group-head { margin-top: 12px; }
-    .appalias-popular { margin-bottom: 8px; }
-    .appalias-popular .btn { margin: 2px 0; }
-    .appalias-proposal { padding: 6px 0; border-bottom: 1px solid #eee; }
-    .appalias-score { display: inline-block; width: 120px; height: 14px; margin: 0; vertical-align: middle; }
-    .appalias-score .progress-bar { font-size: 10px; line-height: 14px; }
-    #appalias-relay-status { margin: 6px 0; }
+
+    /* Lignes flexibles : éléments centrés verticalement, espacés sans marges */
+    .appalias-flex { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+    .appalias-push { margin-left: auto; }
+    .appalias-small { color: #777; font-size: 12px; }
+    .appalias-tabular { font-variant-numeric: tabular-nums; white-space: nowrap; }
+    select.form-control.appalias-select-xs {
+        display: inline-block; width: auto; height: 22px; padding: 0 4px;
+        font-size: 12px; line-height: 1.5; border-radius: 3px;
+    }
+
+    /* Badge du relais */
+    .appalias-relay { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0; }
+    .appalias-relay .label { font-size: 12px; }
+    .appalias-relay .alert { flex-basis: 100%; margin: 0; }
+
+    /* Bandeau : compteurs à gauche, boutons à droite */
+    .appalias-toolbar {
+        display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px;
+        margin: 10px 0; padding: 8px 12px; background: #f7f7f7; border: 1px solid #e5e5e5; border-radius: 3px;
+    }
+    .appalias-stats { display: flex; flex-wrap: wrap; min-width: 0; align-items: baseline; gap: 4px 16px; }
+    .appalias-stat { color: #777; white-space: nowrap; }
+    .appalias-stat strong { color: #333; font-size: 14px; margin-right: 4px; font-variant-numeric: tabular-nums; }
+    .appalias-toolbar-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+
+    /* Cartes du catalogue : même hauteur par ligne, bouton en bas */
+    .appalias-cards { display: flex; flex-wrap: wrap; margin: 0; }
+    .appalias-cards > div { display: flex; }
+    .appalias-card { display: flex; flex-direction: column; width: 100%; margin-bottom: 10px; }
+    .appalias-card .panel-body { display: flex; flex: 1; flex-direction: column; gap: 4px; padding: 10px; }
+    .appalias-card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+    .appalias-card-head strong { margin-right: 4px; word-break: break-all; }
+    .appalias-card-head .badge { margin-left: auto; }
+    .appalias-card-foot { margin-top: auto; padding-top: 6px; }
+
+    /* Galerie « Popular apps » : titre de catégorie à gauche, boutons à droite */
+    .appalias-popular {
+        display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 6px 12px;
+        align-items: start; padding: 6px 0; border-bottom: 1px solid #eee;
+    }
+    .appalias-popular:last-child { border-bottom: 0; }
+    .appalias-popular-title { font-weight: 600; line-height: 30px; }
+    .appalias-popular-lists { display: flex; flex-wrap: wrap; gap: 4px; }
+
+    /* Provenance du catalogue */
+    .appalias-source { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .appalias-source p { flex-basis: 100%; margin: 0; }
+
+    /* Propositions de la découverte : colonnes FIXES identiques pour toutes les lignes */
+    .appalias-proposal {
+        display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 340px) minmax(0, 370px);
+        align-items: center; column-gap: 16px; padding: 8px 0; border-bottom: 1px solid #eee;
+    }
+    .appalias-proposal:last-child { border-bottom: 0; }
+    .appalias-proposal.appalias-covered-row { grid-template-columns: minmax(0, 1fr) 340px; }
+    .appalias-proposal.appalias-unrow { grid-template-columns: minmax(0, 1fr) minmax(0, 520px); }
+    .appalias-proposal-main { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
+    .appalias-proposal-main input[type="checkbox"] { flex: none; margin: 3px 0 0; }
+    .appalias-proposal-text { min-width: 0; flex: 1 1 auto; }
+    .appalias-proposal-name { font-weight: 600; word-break: break-all; }
+    .appalias-proposal-why { color: #777; font-size: 12px; margin-top: 2px; overflow-wrap: anywhere; }
+    .appalias-proposal-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; max-width: 100%; }
+    .appalias-proposal-meta .label { white-space: nowrap; flex: none; }
+    .appalias-proposal-actions { display: flex; flex-wrap: nowrap; align-items: center; justify-content: flex-end; gap: 6px; width: 370px; max-width: 100%; }
+    .appalias-proposal-actions .btn-group { flex: none; }
+    .appalias-proposal-actions select.form-control { flex: none; }
+    select.form-control.appalias-rule-select { width: 160px; text-overflow: ellipsis; }
+    select.form-control.appalias-other-select { width: 100px; text-overflow: ellipsis; }
+    .appalias-unrow .appalias-proposal-main { flex-wrap: wrap; align-items: center; }
+    .appalias-unrow .appalias-proposal-actions { width: auto; flex-wrap: wrap; }
+    .appalias-score { display: inline-flex; flex: none; align-items: center; gap: 6px; margin-right: 4px; }
+    .appalias-score-bar { width: 80px; height: 6px; border-radius: 3px; background: #e5e5e5; overflow: hidden; }
+    .appalias-score-fill { display: block; height: 100%; background: #5bc0de; }
+    .appalias-score-fill.appalias-strong { background: #5cb85c; }
+    .appalias-score-num { min-width: 2em; font-size: 12px; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+    .appalias-panel-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .appalias-panel-head .appalias-push { margin-left: auto; }
+    .appalias-panel-head.panel-heading { overflow-wrap: anywhere; }
+    .tab-content .appalias-title { margin: 24px 0 10px; font-size: 18px; font-weight: 500; line-height: 1.2; }
+    .tab-content summary.appalias-title, .tab-content h3.appalias-title { display: block; color: inherit; font-size: 18px; font-weight: 500; }
+    .appalias-title .badge { margin-left: 6px; vertical-align: middle; }
+    details.appalias-section { margin: 24px 0 10px; }
+    details.appalias-section > summary { cursor: pointer; padding: 0; margin: 0 0 10px; list-style: none; }
+    details.appalias-section > summary::-webkit-details-marker { display: none; }
+    details.appalias-section > summary .fa { width: 1em; margin-right: 4px; font-size: 14px; }
+    details.appalias-section:not([open]) > summary { margin-bottom: 0; }
+    .appalias-note { margin: 24px 0 10px; color: #777; }
+
+    /* Carte Learn */
+    .appalias-learn-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+    .appalias-learn-controls select.form-control { display: inline-block; width: auto; }
+    .appalias-learn-names { margin-top: 8px; }
+    .appalias-learn-names .appalias-flex { margin-top: 4px; }
+
+    /* Section « Automatic updates » */
+    .appalias-follow-entry {
+        display: grid; grid-template-columns: 140px minmax(0, 1fr) auto;
+        align-items: center; gap: 4px 12px; padding: 6px 0; border-bottom: 1px solid #eee;
+    }
+    .appalias-follow-entry:last-child { border-bottom: 0; }
+    .appalias-follow-entry details > summary { cursor: pointer; color: #777; font-size: 12px; }
+    .appalias-follow-rules { margin-top: 4px; font-size: 12px; }
+    .appalias-follow-rules div { word-break: break-all; }
+
+    /* propositions : une colonne dès que la zone de contenu ne tient plus les deux colonnes fixes */
+    @media (max-width: 1199px) {
+        .appalias-proposal,
+        .appalias-proposal.appalias-covered-row,
+        .appalias-proposal.appalias-unrow { grid-template-columns: minmax(0, 1fr); row-gap: 6px; }
+        .appalias-proposal-meta { width: auto; flex-wrap: wrap; overflow: visible; }
+        .appalias-proposal-actions { width: auto; justify-content: flex-start; flex-wrap: wrap; }
+    }
+    @media (max-width: 767px) {
+        .appalias-toolbar { gap: 8px; }
+        .appalias-toolbar-actions { flex-wrap: wrap; }
+        .appalias-grid-rules { min-width: 0; }
+        .appalias-toolbar-actions { margin-left: 0; }
+        .appalias-popular { grid-template-columns: 1fr; }
+        .appalias-popular-title { line-height: normal; }
+        .appalias-follow-entry { grid-template-columns: 1fr; }
+        .appalias-cards > div { width: 100%; }
+    }
 </style>
 
 <script>
@@ -106,7 +221,7 @@
             catEmbedded: "{{ lang._('Embedded snapshot')|escape_js }}",
             catOnline: "{{ lang._('Downloaded')|escape_js }}",
             catUpdateTitle: "{{ lang._('Update catalog now')|escape_js }}",
-            catUpdateConfirm: "{{ lang._('Download the latest v2fly catalog from GitHub now? The firewall contacts api.github.com and codeload.github.com. Your applications do not change: new rules appear as catalog updates to review.')|escape_js }}",
+            catUpdateConfirm: "{{ lang._('Download the latest v2fly catalog from GitHub now? The firewall contacts api.github.com and codeload.github.com. Applications that follow the catalog (auto) receive the changes right away; the others show them as catalog updates to review.')|escape_js }}",
             catUpdated: "{{ lang._('Catalog downloaded:')|escape_js }}",
             catUnchanged: "{{ lang._('The catalog is already up to date.')|escape_js }}",
             catAddedLists: "{{ lang._('lists added')|escape_js }}",
@@ -150,7 +265,28 @@
             rV2fly: "{{ lang._('Listed in the imported v2fly list')|escape_js }}",
             rCooc: "{{ lang._('Often resolved together with this application')|escape_js }}",
             rSite: "{{ lang._('Same site as a rule of this application:')|escape_js }}",
-            rRule: "{{ lang._('Matches the discovery rule')|escape_js }}"
+            rRule: "{{ lang._('Matches the discovery rule')|escape_js }}",
+            dScore: "{{ lang._('Score')|escape_js }}",
+            dCovered: "{{ lang._('already covered')|escape_js }}",
+            dCoveredTitle: "{{ lang._('Already covered (IPs added through CNAME)')|escape_js }}",
+            dCoveredHelp: "{{ lang._('These names are in a CNAME chain that goes through a name of the same application: the relay already adds their addresses to the alias. Nothing to do.')|escape_js }}",
+            auto: "{{ lang._('auto')|escape_js }}",
+            autoHelp: "{{ lang._('Follows the catalog automatically: catalog changes are applied after each catalog update.')|escape_js }}",
+            fNone: "{{ lang._('No automatic change yet.')|escape_js }}",
+            fUndo: "{{ lang._('Undo')|escape_js }}",
+            fUndone: "{{ lang._('undone')|escape_js }}",
+            fUndoKind: "{{ lang._('undo')|escape_js }}",
+            fStarted: "{{ lang._('Automatic updates of followed applications started: see the log below.')|escape_js }}",
+            fUndoOf: "{{ lang._('undo of')|escape_js }}",
+            fDeleted: "{{ lang._('The application was deleted.')|escape_js }}",
+            fDetails: "{{ lang._('details')|escape_js }}",
+            fUndoTitle: "{{ lang._('Undo an automatic change')|escape_js }}",
+            fUndoConfirm: "{{ lang._('Undo this change and apply now? Added rules are removed (and not added again by the next updates), removed rules come back as rules added by hand.')|escape_js }}",
+            fUndoDone: "{{ lang._('Change undone and applied.')|escape_js }}",
+            fUndoFailed: "{{ lang._('Undo failed:')|escape_js }}",
+            fApplyFailed: "{{ lang._('Saved, but applying failed at step:')|escape_js }}",
+            fUpdated: "{{ lang._('application(s) following the catalog updated and applied.')|escape_js }}",
+            fErrors: "{{ lang._('application(s) not updated automatically, see the log.')|escape_js }}"
         };
         const KIND_LABELS = {
             domain: "{{ lang._('domain: (domain and sub-domains)')|escape_js }}",
@@ -203,6 +339,21 @@
             return String(value || '').split(',').map(function (s) { return s.trim(); }).filter(function (s) { return s !== ''; });
         }
 
+        // Valeur d'un champ liste renvoyée par getApp : chaîne CSV, ou objet {valeur: {...}}.
+        function hasValues(value) {
+            if (value === null || value === undefined) {
+                return false;
+            }
+            if (typeof value === 'object') {
+                return Object.keys(value).some(function (key) { return key !== ''; });
+            }
+            return splitList(value).length > 0;
+        }
+
+        function isOn(value) {
+            return value === true || value === 1 || String(value) === '1';
+        }
+
         function errorText(data) {
             let parts = [];
             if (data && data.message) {
@@ -228,20 +379,39 @@
             toggle: '/api/appalias/settings/toggleApp/',
             options: {
                 formatters: {
-                    appname: function (column, row) {
-                        let out = $('<span></span>').append($('<span></span>').text(row.name || ''));
-                        splitList(row.catalog_refs).forEach(function (ref) {
-                            out.append(' ').append($('<span class="label label-info"></span>').text('v2fly:' + ref));
+                    rules: function (column, row) {
+                        let parts = splitList(row[column.id]);
+                        let out = $('<span class="appalias-grid-rules"></span>');
+                        parts.forEach(function (rule, i) {
+                            let last = i === parts.length - 1;
+                            out.append(document.createTextNode(rule + (last ? '' : ',')));
+                            if (!last) {
+                                out.append($('<wbr>'));
+                                out.append(document.createTextNode(' '));
+                            }
                         });
+                        return out.prop('outerHTML');
+                    },
+                    appname: function (column, row) {
+                        let out = $('<span class="appalias-flex"></span>').append($('<span></span>').text(row.name || ''));
+                        let refs = splitList(row.catalog_refs);
+                        refs.forEach(function (ref) {
+                            out.append($('<span class="label label-info"></span>').text('v2fly:' + ref));
+                        });
+                        let follow = refs.length > 0 && isOn(row.catalog_follow);
+                        if (follow) {
+                            out.append($('<span class="label label-primary"></span>').attr('title', T.autoHelp).text(T.auto));
+                        }
                         let d = catalogDiff[row.uuid];
                         if (d && d.error) {
-                            out.append(' ').append(
+                            out.append(
                                 $('<i class="fa fa-exclamation-triangle text-warning"></i>').attr('title', T.catalogError + ' ' + d.error)
                             );
-                        } else if (d) {
+                        } else if (d && !follow) {
+                            // diff manuel : seulement pour les applications qui ne suivent pas le catalogue
                             let n = (d.added || []).length + (d.removed || []).length;
                             if (n > 0) {
-                                out.append(' ').append(
+                                out.append(
                                     $('<a href="#" class="appalias-diff-link label label-warning"></a>')
                                         .attr('data-uuid', row.uuid)
                                         .text(n + ' ' + T.updates)
@@ -250,7 +420,7 @@
                         }
                         let nd = parseInt(discoveryCounts[row.uuid] || 0);
                         if (nd > 0) {
-                            out.append(' ').append(
+                            out.append(
                                 $('<a href="#" class="appalias-disc-link label label-success"></a>').text(nd + ' ' + T.dProposals)
                             );
                         }
@@ -271,6 +441,12 @@
                         }
                         return text;
                     }
+                },
+                // Case « Follow catalog automatically » : seulement pour une application issue du catalogue.
+                onBeforeRenderDialog: function (payload) {
+                    let app = (payload && payload.frm_DialogApp && payload.frm_DialogApp.app) || {};
+                    $('[id="row_app.catalog_follow"]').toggle(hasValues(app.catalog_refs));
+                    return $.Deferred().resolve();
                 }
             }
         });
@@ -485,10 +661,14 @@
             });
         });
 
+        // relectures différées du journal de suivi (une seule paire en attente)
+        let followTimers = [];
+
         // --- Catalogue : informations ---
         function loadCatalogInfo() {
             ajaxGet('/api/appalias/catalog/info', {}, function (data, status) {
-                let box = $('#catalog-info').empty();
+                let box = $('#catalog-info').empty().removeClass('text-danger');
+                $('#catalog-origin-kind, #catalog-origin').toggle(!(!data || data.error));
                 if (!data || data.error) {
                     box.addClass('text-danger').text(T.catalogError + ' ' + errorText(data));
                     return;
@@ -497,8 +677,11 @@
                     ' (' + String(data.date || '').substring(0, 10) + '), ' + parseInt(data.lists || 0) + ' ' + T.lists +
                     ', MIT License.');
                 let online = data.origin === 'online';
-                $('#catalog-origin').text((online ? T.catOnline : T.catEmbedded) + ' ' +
-                    String(data.date || '').substring(0, 10) + ' (' + String(data.commit || '').substring(0, 7) + ')');
+                $('#catalog-origin-kind').removeClass('label-default label-info')
+                    .addClass(online ? 'label-info' : 'label-default')
+                    .text(online ? T.catOnline : T.catEmbedded);
+                $('#catalog-origin').text(String(data.date || '').substring(0, 10) + ' (' +
+                    String(data.commit || '').substring(0, 7) + ')');
                 $('#catalog-update').toggle(!!data.online_update);
                 $('#catalog-reset').toggle(online);
                 if (!data.integrity) {
@@ -517,8 +700,8 @@
                 }
                 (data.categories || []).forEach(function (cat) {
                     let row = $('<div class="appalias-popular"></div>');
-                    row.append($('<strong></strong>').text(String(cat.name || '')));
-                    row.append($('<br/>'));
+                    row.append($('<div class="appalias-popular-title"></div>').text(String(cat.name || '')));
+                    let lists = $('<div class="appalias-popular-lists"></div>').appendTo(row);
                     (cat.lists || []).forEach(function (item) {
                         let btn = $('<button type="button" class="btn btn-default btn-sm"></button>')
                             .attr('title', parseInt(item.rules || 0) + ' ' + T.rules)
@@ -527,7 +710,7 @@
                         btn.on('click', function () {
                             openPreview(item.name);
                         });
-                        row.append(btn).append(' ');
+                        lists.append(btn);
                     });
                     box.append(row);
                 });
@@ -541,12 +724,12 @@
         function renderCard(item) {
             let panel = $('<div class="panel panel-default appalias-card"></div>');
             let body = $('<div class="panel-body"></div>').appendTo(panel);
-            let head = $('<div></div>').appendTo(body);
+            let head = $('<div class="appalias-card-head"></div>').appendTo(body);
             head.append($('<strong></strong>').text(item.name));
-            head.append(' ').append($('<span class="badge"></span>').text(parseInt(item.rules || 0) + ' ' + T.rules));
             (item.attrs || []).forEach(function (attr) {
-                head.append(' ').append($('<span class="label label-default"></span>').text('@' + attr));
+                head.append($('<span class="label label-default"></span>').text('@' + attr));
             });
+            head.append($('<span class="badge"></span>').text(parseInt(item.rules || 0) + ' ' + T.rules));
             if (item.match === 'domain' && item.via) {
                 body.append($('<div class="text-muted"></div>').text(T.byDomain + ' ' + item.via));
             }
@@ -564,7 +747,7 @@
             btn.on('click', function () {
                 openPreview(item.name);
             });
-            body.append($('<div style="margin-top: 6px"></div>').append(btn));
+            body.append($('<div class="appalias-card-foot"></div>').append(btn));
             return $('<div class="col-md-4 col-sm-6"></div>').append(panel);
         }
 
@@ -899,7 +1082,7 @@
                         badge.append(' ').append($('<span class="text-muted"></span>').text(details.join(', ')));
                     }
                 } else {
-                    label.addClass('label-default').text(state === 'disabled' ? T.stDisabled : T.stStopped);
+                    label.addClass(state === 'disabled' ? 'label-default' : 'label-danger').text(state === 'disabled' ? T.stDisabled : T.stStopped);
                     badge.append(label);
                 }
                 let restart = $('#appalias-restart-needed').empty().hide();
@@ -928,7 +1111,141 @@
             } else {
                 msg.addClass('alert-danger').text(T.catUpdateFailed + ' ' + errorText(data));
             }
+            // Suivi automatique lancé après le téléchargement (catalog_follow.php).
+            let follow = data && data.follow;
+            if (follow && typeof follow === 'object') {
+                if (follow.result === 'started') {
+                    msg.append($('<div></div>').text(T.fStarted));
+                    // le suivi tourne en tâche détachée : relire le journal deux fois, sans boucle
+                    followTimers.forEach(clearTimeout);
+                    followTimers = [setTimeout(loadFollowLog, 5000), setTimeout(loadFollowLog, 15000)];
+                }
+                if (parseInt(follow.changed || 0) > 0) {
+                    msg.append($('<div></div>').text(parseInt(follow.changed) + ' ' + T.fUpdated));
+                }
+                if (parseInt(follow.errors || 0) > 0) {
+                    msg.removeClass('alert-info').addClass('alert-warning')
+                        .append($('<div></div>').text(parseInt(follow.errors) + ' ' + T.fErrors));
+                }
+                if (follow.apply_error) {
+                    msg.removeClass('alert-info').addClass('alert-warning')
+                        .append($('<div></div>').text(T.fApplyFailed + ' ' + String(follow.apply_error)));
+                }
+                if (follow.result === 'failed') {
+                    msg.removeClass('alert-info').addClass('alert-warning')
+                        .append($('<div></div>').text(T.catalogError + ' ' + errorText(follow)));
+                }
+            }
             msg.show();
+        }
+
+        // --- Catalogue : suivi automatique (journal et annulation) ---
+        function pad2(n) {
+            return ('0' + n).slice(-2);
+        }
+
+        function dateText(seconds) {
+            let d = new Date(parseFloat(seconds || 0) * 1000);
+            return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + ' ' +
+                pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+        }
+
+        function undoFollow(entry) {
+            BootstrapDialog.confirm({
+                title: T.fUndoTitle,
+                message: T.fUndoConfirm,
+                type: BootstrapDialog.TYPE_WARNING,
+                btnOKLabel: T.fUndo,
+                callback: function (confirmed) {
+                    if (!confirmed) {
+                        return;
+                    }
+                    ajaxCall('/api/appalias/catalog/undoFollow', {entry_id: String(entry.id)}, function (data, status) {
+                        let ok = data && data.result === 'undone';
+                        let msg = $('#catalog-message').removeClass('alert-info alert-danger alert-warning')
+                            .addClass(ok ? 'alert-info' : 'alert-danger')
+                            .text(ok ? T.fUndoDone : T.fUndoFailed + ' ' + errorText(data));
+                        if (ok && data.apply_error) {
+                            msg.removeClass('alert-info').addClass('alert-warning')
+                                .append($('<div></div>').text(T.fApplyFailed + ' ' + String(data.apply_error)));
+                        }
+                        msg.show();
+                        loadFollowLog();
+                        refreshStatus(true);
+                        refreshDiff();
+                    });
+                }
+            });
+        }
+
+        function renderFollowEntry(entry, byId) {
+            let added = entry.added || [];
+            let removed = entry.removed || [];
+            let row = $('<div class="appalias-follow-entry"></div>');
+            row.append($('<div class="appalias-small appalias-tabular"></div>').text(dateText(entry.time)));
+            let main = $('<div></div>').appendTo(row);
+            let line = $('<div class="appalias-flex"></div>').appendTo(main);
+            line.append($('<strong></strong>').text(String(entry.app || '')));
+            line.append($('<span class="label label-success"></span>').text('+' + added.length));
+            line.append($('<span class="label label-danger"></span>').text('-' + removed.length));
+            if (entry.kind === 'undo') {
+                line.append($('<span class="label label-default"></span>').text(T.fUndoKind));
+            }
+            if (entry.revision) {
+                line.append($('<span class="appalias-small"></span>').text(T.commit + ' ' + String(entry.revision).substring(0, 7)));
+            }
+            if (added.length + removed.length > 0) {
+                let details = $('<details></details>').appendTo(main);
+                details.append($('<summary></summary>').text(T.fDetails));
+                let rules = $('<div class="appalias-follow-rules"></div>').appendTo(details);
+                added.forEach(function (rule) {
+                    rules.append($('<div class="text-success"></div>').append('+ ').append($('<code></code>').text(String(rule))));
+                });
+                removed.forEach(function (rule) {
+                    rules.append($('<div class="text-danger"></div>').append('- ').append($('<code></code>').text(String(rule))));
+                });
+            }
+            let side = $('<div class="appalias-flex"></div>').appendTo(row);
+            if (entry.kind === 'undo') {
+                let target = entry.undo_of && byId ? byId[String(entry.undo_of)] : null;
+                side.append($('<span class="label label-default"></span>')
+                    .text(T.fUndoOf + (target ? ' ' + dateText(target.time) : '')));
+            } else if (entry.undone_by) {
+                side.append($('<span class="label label-default"></span>').text(T.fUndone));
+            } else {
+                let btn = $('<button type="button" class="btn btn-xs btn-default"></button>')
+                    .append('<i class="fa fa-undo"></i> ').append(document.createTextNode(T.fUndo));
+                if (!entry.app_exists) {
+                    btn.prop('disabled', true).attr('title', T.fDeleted);
+                }
+                btn.on('click', function () {
+                    undoFollow(entry);
+                });
+                side.append(btn);
+            }
+            return row;
+        }
+
+        function loadFollowLog() {
+            ajaxGet('/api/appalias/catalog/followLog', {}, function (data, status) {
+                let box = $('#catalog-follow-log').empty();
+                if (!data || data.error) {
+                    box.append($('<p class="text-danger"></p>').text(T.catalogError + ' ' + errorText(data)));
+                    return;
+                }
+                let entries = data.entries || [];
+                if (!entries.length) {
+                    box.append($('<p class="text-muted"></p>').text(T.fNone));
+                    return;
+                }
+                let byId = {};
+                entries.forEach(function (entry) {
+                    byId[String(entry.id)] = entry;
+                });
+                entries.forEach(function (entry) {
+                    box.append(renderFollowEntry(entry, byId));
+                });
+            });
         }
 
         $('#catalog-update').on('click', function () {
@@ -947,6 +1264,8 @@
                         catalogResult(data);
                         loadCatalogInfo();
                         loadPopular();
+                        loadFollowLog();
+                        refreshStatus(true);
                         refreshDiff();
                     });
                 }
@@ -1000,7 +1319,7 @@
         }
 
         function appSelect(placeholder) {
-            let sel = $('<select class="form-control input-sm" style="display: inline-block; width: auto"></select>');
+            let sel = $('<select class="form-control appalias-select-xs"></select>');
             sel.append($('<option value=""></option>').text(placeholder));
             discApps.forEach(function (app) {
                 sel.append($('<option></option>').attr('value', app.uuid).text(app.name));
@@ -1058,44 +1377,68 @@
             });
         }
 
+        function scoreBar(item) {
+            let score = Math.max(0, Math.min(100, parseInt(item.score || 0)));
+            let wrap = $('<span class="appalias-score"></span>').attr('title', T.dScore + ' ' + score + '/100');
+            let fill = $('<span class="appalias-score-fill"></span>').css('width', score + '%')
+                .toggleClass('appalias-strong', !!item.strong);
+            wrap.append($('<span class="appalias-score-bar"></span>').append(fill));
+            wrap.append($('<span class="appalias-score-num"></span>').text(String(score)));
+            return wrap;
+        }
+
+        // Ligne d'une proposition : nom et explication | score et pastilles | règle et boutons.
         function renderProposal(item) {
-            let row = $('<div class="appalias-proposal"></div>');
+            let covered = !!item.covered;
+            let row = $('<div class="appalias-proposal"></div>').toggleClass('appalias-covered-row', covered);
+            let main = $('<div class="appalias-proposal-main"></div>').appendTo(row);
             let check = $('<input type="checkbox" class="appalias-proposal-check"/>').prop('checked', !!item.checked);
-            let head = $('<div></div>').appendTo(row);
-            head.append(check).append(' ').append($('<code></code>').text(String(item.name)));
-            let score = parseInt(item.score || 0);
-            let bar = $('<div class="progress appalias-score"><div class="progress-bar"></div></div>');
-            bar.find('.progress-bar').css('width', Math.min(100, score) + '%')
-                .addClass(item.strong ? 'progress-bar-success' : 'progress-bar-info').text(String(score));
-            head.append(' ').append(bar);
+            if (!covered) {
+                main.append(check);
+            }
+            let text = $('<div class="appalias-proposal-text"></div>').appendTo(main);
+            text.append($('<div class="appalias-proposal-name"></div>').text(String(item.name))
+                .append(' ').append($('<span class="appalias-small appalias-tabular"></span>')
+                    .text(parseInt(item.views || 0) + ' ' + T.dViews)));
+            text.append($('<div class="appalias-proposal-why"></div>').text((item.reasons || []).map(reasonText).join('. ')));
+
+            let meta = $('<div class="appalias-proposal-meta"></div>').appendTo(row);
+            meta.append(scoreBar(item));
             let codes = (item.reasons || []).map(function (r) { return r.code; });
-            if (codes.indexOf('cname_neighbor') !== -1 || codes.indexOf('chain') !== -1) {
-                head.append(' ').append($('<span class="label label-primary"></span>').text(T.dCname));
+            if (covered) {
+                meta.append($('<span class="label label-default"></span>').text(T.dCovered));
+            } else if (codes.indexOf('cname_neighbor') !== -1 || codes.indexOf('chain') !== -1) {
+                meta.append($('<span class="label label-primary"></span>').text(T.dCname));
             }
             if (codes.indexOf('v2fly_imported') !== -1) {
-                head.append(' ').append($('<span class="label label-info"></span>').text('v2fly'));
+                meta.append($('<span class="label label-info"></span>').text('v2fly'));
             }
             if (codes.indexOf('cooccurrence') !== -1) {
-                head.append(' ').append($('<span class="label label-default"></span>').text(T.dCooc));
+                meta.append($('<span class="label label-default"></span>').text(T.dCooc));
             }
-            if (item.strong) {
-                head.append(' ').append($('<span class="label label-success"></span>').text(T.dStrong));
+            if (item.strong && !covered) {
+                meta.append($('<span class="label label-success"></span>').text(T.dStrong));
             }
             if (item.new) {
-                head.append(' ').append($('<span class="label label-warning"></span>').text(T.dNew));
+                meta.append($('<span class="label label-warning"></span>').text(T.dNew));
             }
             if (item.shared) {
-                head.append(' ').append($('<span class="label label-danger"></span>').attr('title', T.sharedHelp).text(T.sharedCdn));
+                meta.append($('<span class="label label-danger"></span>').attr('title', T.sharedHelp).text(T.sharedCdn));
             }
-            head.append(' ').append($('<span class="text-muted"></span>').text(parseInt(item.views || 0) + ' ' + T.dViews));
-            row.append($('<div class="text-muted"></div>').text((item.reasons || []).map(reasonText).join('. ')));
-            let actions = $('<div class="form-inline"></div>').appendTo(row);
-            let ruleSel = $('<select class="form-control input-sm appalias-proposal-rule"></select>');
+            row.data('item', item);
+            if (covered) {
+                return row;   // adresses déjà ajoutées par la chaîne CNAME : ni Accept ni Ignore
+            }
+
+            let actions = $('<div class="appalias-proposal-actions"></div>').appendTo(row);
+            let ruleSel = $('<select class="form-control appalias-select-xs appalias-rule-select appalias-proposal-rule"></select>');
             (item.options || [item.rule]).forEach(function (opt) {
-                ruleSel.append($('<option></option>').attr('value', opt).text(opt));
+                ruleSel.append($('<option></option>').attr('value', opt).attr('title', opt).text(opt));
             });
-            ruleSel.val(item.rule);
-            actions.append(ruleSel).append(' ');
+            ruleSel.val(item.rule).attr('title', String(item.rule));
+            ruleSel.on('change', function () {
+                $(this).attr('title', String($(this).val()));
+            });
             let accept = $('<button type="button" class="btn btn-xs btn-primary"></button>').text(T.dAccept);
             accept.on('click', function () {
                 acceptRule(item.name, String(ruleSel.val()), item.app_uuid);
@@ -1104,24 +1447,51 @@
             ignore.on('click', function () {
                 ignoreRule(String(ruleSel.val()), true);
             });
-            let other = appSelect(T.dOtherApp);
+            let other = appSelect(T.dOtherApp).addClass('appalias-other-select');
             other.on('change', function () {
                 if ($(this).val()) {
                     acceptRule(item.name, String(ruleSel.val()), String($(this).val()));
                 }
             });
-            actions.append(accept).append(' ').append(ignore).append(' ').append(other);
-            row.data('item', item);
+            actions.append(ruleSel)
+                .append($('<div class="btn-group"></div>').append(accept).append(ignore))
+                .append(other);
             row.data('rule', ruleSel);
             return row;
         }
 
-        function renderProposals(list) {
-            let box = $('#discovery-proposals').empty();
-            if (!list.length) {
-                box.append($('<p class="text-muted"></p>').text(T.dNone));
-                return;
-            }
+        function acceptChecked(body) {
+            let todo = [];
+            body.find('.appalias-proposal').each(function () {
+                if ($(this).find('.appalias-proposal-check').prop('checked')) {
+                    todo.push([$(this).data('item'), String($(this).data('rule').val())]);
+                }
+            });
+            let errors = [];
+            let seen = {};
+            (function next() {
+                if (!todo.length) {
+                    discMessage(!errors.length, errors.length ? T.failed + ' ' + errors.join(' ') : T.dSaved);
+                    loadDiscovery();
+                    reloadGridIfLoaded();
+                    return;
+                }
+                let pair = todo.shift();
+                if (seen[pair[1]]) {
+                    next();   // même règle domain: déjà enregistrée pour ce groupe
+                    return;
+                }
+                seen[pair[1]] = true;
+                acceptRule(pair[0].name, pair[1], pair[0].app_uuid, function (ok, data) {
+                    if (!ok) {
+                        errors.push(String(pair[0].name) + ': ' + errorText(data));
+                    }
+                    next();
+                });
+            })();
+        }
+
+        function groupByApp(list) {
             let groups = {};
             let order = [];
             list.forEach(function (item) {
@@ -1132,48 +1502,56 @@
                 }
                 groups[key].push(item);
             });
-            order.forEach(function (key) {
-                let panel = $('<div class="panel panel-default appalias-card"></div>');
-                let heading = $('<div class="panel-heading"></div>').appendTo(panel);
-                heading.append($('<strong></strong>').text(String(groups[key][0].app || '')))
-                    .append(' ').append($('<span class="badge"></span>').text(groups[key].length + ' ' + T.dProposals));
-                let body = $('<div class="panel-body"></div>').appendTo(panel);
-                groups[key].forEach(function (item) {
+            return order.map(function (key) { return groups[key]; });
+        }
+
+        function renderProposals(list) {
+            let useful = list.filter(function (item) { return !item.covered; });
+            let covered = list.filter(function (item) { return !!item.covered; });
+            let box = $('#discovery-proposals').empty();
+            if (!useful.length) {
+                box.append($('<p class="text-muted"></p>').text(T.dNone));
+            }
+            groupByApp(useful).forEach(function (items) {
+                let panel = $('<div class="panel panel-default"></div>');
+                let heading = $('<div class="panel-heading appalias-panel-head"></div>').appendTo(panel);
+                heading.append($('<strong></strong>').text(String(items[0].app || '')))
+                    .append($('<span class="badge"></span>').text(items.length + ' ' + T.dProposals));
+                let body = $('<div class="panel-body"></div>');
+                let bulk = $('<button type="button" class="btn btn-xs btn-primary appalias-push"></button>').text(T.dAcceptChecked);
+                bulk.on('click', function () {
+                    acceptChecked(body);
+                });
+                heading.append(bulk);
+                items.forEach(function (item) {
                     body.append(renderProposal(item));
                 });
-                let bulk = $('<button type="button" class="btn btn-xs btn-primary"></button>').text(T.dAcceptChecked);
-                bulk.on('click', function () {
-                    let todo = [];
-                    body.find('.appalias-proposal').each(function () {
-                        if ($(this).find('.appalias-proposal-check').prop('checked')) {
-                            todo.push([$(this).data('item'), String($(this).data('rule').val())]);
-                        }
-                    });
-                    let errors = [];
-                    let seen = {};
-                    (function next() {
-                        if (!todo.length) {
-                            discMessage(!errors.length, errors.length ? T.failed + ' ' + errors.join(' ') : T.dSaved);
-                            loadDiscovery();
-                            reloadGridIfLoaded();
-                            return;
-                        }
-                        let pair = todo.shift();
-                        if (seen[pair[1]]) {
-                            next();   // même règle domain: déjà enregistrée pour ce groupe
-                            return;
-                        }
-                        seen[pair[1]] = true;
-                        acceptRule(pair[0].name, pair[1], pair[0].app_uuid, function (ok, data) {
-                            if (!ok) {
-                                errors.push(String(pair[0].name) + ': ' + errorText(data));
-                            }
-                            next();
-                        });
-                    })();
+                box.append(panel.append(body));
+            });
+
+            // « Already covered » : section repliée, pour l'information seulement.
+            let section = $('#discovery-covered').empty().toggle(covered.length > 0);
+            if (!covered.length) {
+                return;
+            }
+            let details = $('<details class="appalias-section"></details>').appendTo(section);
+            let chevron = $('<i class="fa fa-chevron-right"></i>');
+            details.append($('<summary class="appalias-title"></summary>')
+                .append(chevron)
+                .append(document.createTextNode(T.dCoveredTitle))
+                .append($('<span class="badge"></span>').text(String(covered.length))));
+            details.on('toggle', function () {
+                chevron.toggleClass('fa-chevron-right', !this.open).toggleClass('fa-chevron-down', this.open);
+            });
+            details.append($('<p class="text-muted"></p>').text(T.dCoveredHelp));
+            groupByApp(covered).forEach(function (items) {
+                let panel = $('<div class="panel panel-default"></div>').appendTo(details);
+                panel.append($('<div class="panel-heading appalias-panel-head"></div>')
+                    .append($('<strong></strong>').text(String(items[0].app || ''))));
+                let body = $('<div class="panel-body"></div>').appendTo(panel);
+                items.forEach(function (item) {
+                    body.append(renderProposal(item));
                 });
-                body.append($('<div style="margin-top: 6px"></div>').append(bulk));
-                box.append(panel);
             });
         }
 
@@ -1183,31 +1561,32 @@
                 box.append($('<p class="text-muted"></p>').text(T.dNone));
                 return;
             }
-            let table = $('<table class="table table-condensed"></table>').appendTo(box);
             groups.forEach(function (group) {
-                table.append($('<tr class="active"></tr>').append(
-                    $('<td colspan="3"></td>').append($('<strong></strong>').text(String(group.site || '')))
-                        .append(' ').append($('<span class="text-muted"></span>').text(parseInt(group.views || 0) + ' ' + T.dViews))
-                ));
+                let panel = $('<div class="panel panel-default"></div>').appendTo(box);
+                panel.append($('<div class="panel-heading appalias-panel-head"></div>')
+                    .append($('<strong></strong>').text(String(group.site || '')))
+                    .append($('<span class="badge"></span>').text(parseInt(group.views || 0) + ' ' + T.dViews)));
+                let body = $('<div class="panel-body"></div>').appendTo(panel);
                 (group.names || []).forEach(function (item) {
-                    let name = $('<td></td>').append($('<code></code>').text(String(item.name)));
+                    let row = $('<div class="appalias-proposal appalias-unrow"></div>').appendTo(body);
+                    let main = $('<div class="appalias-proposal-main"></div>').appendTo(row);
+                    main.append($('<code></code>').text(String(item.name)));
                     if (item.new) {
-                        name.append(' ').append($('<span class="label label-warning"></span>').text(T.dNew));
+                        main.append($('<span class="label label-warning"></span>').text(T.dNew));
                     }
                     if (item.shared) {
-                        name.append(' ').append($('<span class="label label-danger"></span>').text(T.sharedCdn));
+                        main.append($('<span class="label label-danger"></span>').attr('title', T.sharedHelp).text(T.sharedCdn));
                     }
-                    let v2 = $('<td></td>');
+                    let actions = $('<div class="appalias-proposal-actions"></div>').appendTo(row);
                     (item.v2fly || []).forEach(function (list) {
                         let btn = $('<button type="button" class="btn btn-xs btn-default"></button>')
                             .text(T.dCreateApp + ' v2fly:' + String(list));
                         btn.on('click', function () {
                             openPreview(String(list));
                         });
-                        v2.append(btn).append(' ');
+                        actions.append(btn);
                     });
-                    let actions = $('<td class="form-inline"></td>');
-                    let add = appSelect(T.dAddTo);
+                    let add = appSelect(T.dAddTo).addClass('appalias-other-select');
                     add.on('change', function () {
                         if ($(this).val()) {
                             acceptRule(item.name, 'full:' + item.name, String($(this).val()));
@@ -1217,8 +1596,7 @@
                     ignore.on('click', function () {
                         ignoreRule('full:' + item.name, true);
                     });
-                    actions.append(add).append(' ').append(ignore);
-                    table.append($('<tr></tr>').append(name).append(v2).append(actions));
+                    actions.append(add).append(ignore);
                 });
             });
         }
@@ -1244,16 +1622,16 @@
             let active = !!(learn && learn.active);
             $('#discovery-learn-start').prop('disabled', active);
             $('#discovery-learn-stop').toggle(active);
-            let countdown = $('#discovery-learn-countdown').empty();
+            let countdown = $('#discovery-learn-countdown').empty().hide();
             let names = $('#discovery-learn-names').empty();
             if (active) {
                 let left = parseInt(learn.remaining || 0);
-                countdown.text(left + ' ' + T.dLearnLeft);
+                countdown.text(left + ' ' + T.dLearnLeft).show();
                 learnTimer = setInterval(function () {
                     left--;
                     if (left <= 0) {
                         clearInterval(learnTimer);
-                        countdown.empty();
+                        countdown.empty().hide();
                         // fenêtre écoulée : le relais finit la session, puis écrit ses données
                         setTimeout(refreshDiscovery, 8000);
                         return;
@@ -1265,12 +1643,13 @@
                 names.append($('<p class="text-muted"></p>').text(learn.names.length + ' ' + T.dLearnSeen));
                 let isNew = {};
                 (learn.new || []).forEach(function (n) { isNew[n] = true; });
+                let list = $('<div class="appalias-flex"></div>').appendTo(names);
                 learn.names.slice(0, 200).forEach(function (n) {
-                    let line = $('<div></div>').append($('<code></code>').text(String(n)));
+                    let line = $('<span class="appalias-flex"></span>').append($('<code></code>').text(String(n)));
                     if (isNew[n]) {
-                        line.append(' ').append($('<span class="label label-warning"></span>').text(T.dNew));
+                        line.append($('<span class="label label-warning"></span>').text(T.dNew));
                     }
-                    names.append(line);
+                    list.append(line);
                 });
             }
         }
@@ -1297,16 +1676,32 @@
                     notes.append($('<div class="text-warning"></div>').text(T.dRegexTimeout));
                 }
                 let saved = st.saved ? new Date(st.saved * 1000) : null;
-                let hhmm = saved ? ('0' + saved.getHours()).slice(-2) + ':' + ('0' + saved.getMinutes()).slice(-2) : '-';
-                $('#discovery-counters').text(
-                    parseInt(st.observed || 0) + ' ' + T.dObserved + ', ' +
-                    parseInt(st.uncovered || 0) + ' ' + T.dUncovered + ', ' +
-                    parseInt(st.proposals || 0) + ' ' + T.dProposals + ', ' +
-                    parseInt(st.unassigned || 0) + ' ' + T.dUnassigned + ', ' +
-                    parseInt(st.dropped || 0) + ' ' + T.dDropped + ', ' +
-                    T.dRetention + ' ' + parseInt(st.retention_days || 0) + ', ' +
-                    T.dDataAt + ' ' + hhmm
-                );
+                let hhmm = saved ? pad2(saved.getHours()) + ':' + pad2(saved.getMinutes()) : '-';
+                // Compteurs : « proposals » ne compte que les propositions utiles (hors « already covered »).
+                let stats = $('#discovery-counters').empty();
+                let stat = function (value, label, labelFirst) {
+                    let item = $('<span class="appalias-stat"></span>');
+                    if (labelFirst) {
+                        item.append(document.createTextNode(label + ' '));
+                    }
+                    item.append($('<strong></strong>').text(String(value)));
+                    if (!labelFirst) {
+                        item.append(document.createTextNode(label));
+                    }
+                    stats.append(item);
+                };
+                stat(parseInt(st.proposals || 0), T.dProposals);
+                if (parseInt(st.covered || 0) > 0) {
+                    stat(parseInt(st.covered), T.dCovered);
+                }
+                stat(parseInt(st.unassigned || 0), T.dUnassigned);
+                stat(parseInt(st.observed || 0), T.dObserved);
+                stat(parseInt(st.uncovered || 0), T.dUncovered);
+                if (parseInt(st.dropped || 0) > 0) {
+                    stat(parseInt(st.dropped), T.dDropped);
+                }
+                stat(parseInt(st.retention_days || 0), T.dRetention, true);
+                stat(hhmm, T.dDataAt, true);
                 renderLearn(st.learn);
                 renderIgnored(st.ignored || []);
                 ajaxGet('/api/appalias/discovery/proposals', {}, function (data, status) {
@@ -1389,12 +1784,14 @@
         loadCatalogInfo();
         loadPopular();
         loadUnboundStatus();
+        loadFollowLog();
         loadDiscApps(loadDiscovery);
     });
 </script>
 
-<div id="appalias-relay-status">
-    <strong>{{ lang._('Relay') }}</strong> <span id="appalias-relay-badge"></span>
+<div id="appalias-relay-status" class="appalias-relay">
+    <strong>{{ lang._('Relay') }}</strong>
+    <span id="appalias-relay-badge" class="appalias-flex"></span>
     <div id="appalias-restart-needed" class="alert alert-warning" style="display: none" role="alert"></div>
 </div>
 
@@ -1418,11 +1815,11 @@
                 <th data-column-id="enabled" data-width="6em" data-type="string" data-formatter="rowtoggle">{{ lang._('Enabled') }}</th>
                 <th data-column-id="name" data-type="string" data-formatter="appname">{{ lang._('Name') }}</th>
                 <th data-column-id="description" data-type="string">{{ lang._('Description') }}</th>
-                <th data-column-id="domains" data-type="string">{{ lang._('Domains') }}</th>
+                <th data-column-id="domains" data-type="string" data-formatter="rules">{{ lang._('Domains') }}</th>
                 <th data-column-id="networks" data-type="string" data-visible="false">{{ lang._('Networks') }}</th>
                 <th data-column-id="families" data-type="string">{{ lang._('Families') }}</th>
                 <th data-column-id="ipcount" data-type="string" data-formatter="ipcount" data-sortable="false">{{ lang._('IPs v4/v6') }}</th>
-                <th data-column-id="commands" data-width="7em" data-formatter="commands" data-sortable="false">{{ lang._('Commands') }}</th>
+                <th data-column-id="commands" data-width="9em" style="min-width: 9em; white-space: nowrap" data-formatter="commands" data-sortable="false">{{ lang._('Commands') }}</th>
             </tr>
             </thead>
             <tbody>
@@ -1454,18 +1851,30 @@
     <div id="catalog" class="tab-pane fade in">
         <div class="col-md-12">
             <div class="panel panel-default" style="margin-top: 10px">
-                <div class="panel-body">
+                <div class="panel-body appalias-source">
+                    <span id="catalog-origin-kind" class="label label-default"></span>
                     <strong id="catalog-origin"></strong>
-                    <button type="button" class="btn btn-xs btn-default" id="catalog-update" style="display: none">
-                        {{ lang._('Update catalog now') }}
-                    </button>
-                    <button type="button" class="btn btn-xs btn-default" id="catalog-reset" style="display: none">
-                        {{ lang._('Revert to embedded') }}
-                    </button>
+                    <span class="appalias-toolbar-actions">
+                        <button type="button" class="btn btn-xs btn-default" id="catalog-update" style="display: none">
+                            <i class="fa fa-refresh"></i> {{ lang._('Update catalog now') }}
+                        </button>
+                        <button type="button" class="btn btn-xs btn-default" id="catalog-reset" style="display: none">
+                            {{ lang._('Revert to embedded') }}
+                        </button>
+                    </span>
                     <p id="catalog-info" class="text-muted"></p>
                 </div>
             </div>
             <div id="catalog-message" class="alert alert-info" style="display: none" role="alert"></div>
+            <div class="panel panel-default">
+                <div class="panel-heading"><strong>{{ lang._('Automatic updates') }}</strong></div>
+                <div class="panel-body">
+                    <p class="text-muted">
+                        {{ lang._('Applications marked auto follow the catalog: after each catalog update, the new rules of their catalog lists are added and the rules removed from the catalog are removed, then applied. Rules added by hand are never changed. The last 20 changes are listed below; Undo reverts one and applies again.') }}
+                    </p>
+                    <div id="catalog-follow-log"></div>
+                </div>
+            </div>
             <h3>{{ lang._('Popular apps') }}</h3>
             <div id="catalog-popular"></div>
             <h3>{{ lang._('Search the catalog') }}</h3>
@@ -1477,7 +1886,7 @@
                 {{ lang._('Importing only saves the application: nothing changes on the firewall before you click Apply.') }}
             </p>
         </div>
-        <div id="catalog-results" class="row" style="margin: 0"></div>
+        <div id="catalog-results" class="row appalias-cards"></div>
         <div class="col-md-12"><br/></div>
     </div>
 
@@ -1490,6 +1899,9 @@
                     <p>
                         {{ lang._('When enabled, the relay counts the DNS names it sees (names only, never which client asked) and suggests rules for your applications: CNAME targets, sub-domains, CDN names, names resolved together. Nothing is added without your validation and Apply.') }}
                     </p>
+                    <p>
+                        {{ lang._('You do not need discovery for the addresses of names already covered: the relay adds them automatically, including the names of their CNAME chains. Discovery only helps you find names that are missing.') }}
+                    </p>
                     <p class="text-muted">
                         {{ lang._('With the automatic Unbound forwarding, the relay only sees the application domains and their CNAME chains: discovery then completes existing applications. It sees other domains only when all DNS queries go through the relay.') }}
                     </p>
@@ -1499,36 +1911,48 @@
                 </div>
             </div>
             <div id="discovery-on" style="display: none">
-                <div style="margin-top: 10px">
-                    <span id="discovery-counters" class="text-muted"></span>
-                    <button type="button" class="btn btn-xs btn-default" id="discovery-refresh">
-                        <i class="fa fa-refresh"></i> {{ lang._('Refresh') }}
-                    </button>
-                    <button type="button" class="btn btn-xs btn-default" id="discovery-purge">
-                        {{ lang._('Erase discovery data') }}
-                    </button>
+                <div class="appalias-toolbar">
+                    <div id="discovery-counters" class="appalias-stats"></div>
+                    <div class="appalias-toolbar-actions">
+                        <button type="button" class="btn btn-xs btn-default" id="discovery-refresh">
+                            <i class="fa fa-refresh"></i> {{ lang._('Refresh') }}
+                        </button>
+                        <button type="button" class="btn btn-xs btn-default" id="discovery-purge">
+                            <i class="fa fa-trash-o"></i> {{ lang._('Erase discovery data') }}
+                        </button>
+                    </div>
                 </div>
-                <div id="discovery-notes" style="margin-top: 6px"></div>
-                <div class="panel panel-default" style="margin-top: 10px">
+                <p class="text-muted">
+                    {{ lang._('Addresses of names already covered by an application are added automatically, including the names of their CNAME chains. Discovery only helps you find names that are missing.') }}
+                </p>
+                <div id="discovery-notes"></div>
+                <div class="panel panel-default">
                     <div class="panel-heading"><strong>{{ lang._('Learn 2 min') }}</strong></div>
-                    <div class="panel-body form-inline">
+                    <div class="panel-body">
                         <p class="text-muted">
                             {{ lang._('Start, then use the application on a client for two minutes: names seen during the window are highlighted, "new" when never seen before.') }}
                         </p>
-                        <select id="discovery-learn-app" class="form-control input-sm"></select>
-                        <button type="button" class="btn btn-sm btn-primary" id="discovery-learn-start">{{ lang._('Start learning') }}</button>
-                        <button type="button" class="btn btn-sm btn-default" id="discovery-learn-stop" style="display: none">{{ lang._('Stop') }}</button>
-                        <strong id="discovery-learn-countdown"></strong>
-                        <div id="discovery-learn-names" style="margin-top: 6px"></div>
+                        <div class="appalias-learn-controls">
+                            <select id="discovery-learn-app" class="form-control input-sm"></select>
+                            <button type="button" class="btn btn-sm btn-primary" id="discovery-learn-start">
+                                <i class="fa fa-play"></i> {{ lang._('Start learning') }}
+                            </button>
+                            <button type="button" class="btn btn-sm btn-default" id="discovery-learn-stop" style="display: none">
+                                <i class="fa fa-stop"></i> {{ lang._('Stop') }}
+                            </button>
+                            <span id="discovery-learn-countdown" class="label label-info appalias-tabular" style="display: none"></span>
+                        </div>
+                        <div id="discovery-learn-names" class="appalias-learn-names"></div>
                     </div>
                 </div>
-                <h3>{{ lang._('Proposals') }}</h3>
+                <h3 class="appalias-title">{{ lang._('Proposals') }}</h3>
                 <div id="discovery-proposals"></div>
-                <h3>{{ lang._('Unassigned') }}</h3>
+                <div id="discovery-covered" style="display: none"></div>
+                <h3 class="appalias-title">{{ lang._('Unassigned') }}</h3>
                 <div id="discovery-unassigned"></div>
-                <h3>{{ lang._('Ignored') }}</h3>
+                <h3 class="appalias-title">{{ lang._('Ignored') }}</h3>
                 <div id="discovery-ignored"></div>
-                <p class="text-muted">
+                <p class="appalias-note">
                     {{ lang._('Accepting only saves the rule in the application: nothing changes on the firewall before you click Apply. Ignored rules are kept in the configuration (and its backups).') }}
                 </p>
             </div>
@@ -1612,13 +2036,20 @@
 
             <h2>{{ lang._('2. Catalog') }}</h2>
             <p>
-                The <i>Catalog</i> tab searches an embedded snapshot of
+                The <i>Catalog</i> tab searches a snapshot of
                 <a href="https://github.com/v2fly/domain-list-community" target="_blank" rel="noopener noreferrer">v2fly domain-list-community</a>
-                (MIT License). Nothing is downloaded by the firewall. The preview lets you choose the rules to import:
+                (MIT License): embedded in the package, or downloaded daily when the online update is enabled in
+                <i>Settings</i>. The preview lets you choose the rules to import:
                 rules tagged <code>@ads</code> and rules on shared platforms (CDN) are unchecked by default;
                 <code>keyword:</code> and <code>regexp:</code> are discovery rules, kept but never applied by the relay.
-                An imported application shows its catalog lists and, after a plugin update, the number of catalog
-                updates you can review and accept.
+            </p>
+            <p>
+                An imported application follows the catalog automatically (<span class="label label-primary">auto</span>):
+                after each catalog update, new rules of its lists are added and rules removed from the catalog are
+                removed, then applied without a click. Rules you unchecked at import, rules added by hand, shared
+                platforms and discovery rules are never added or changed. Every change is listed in
+                <i>Catalog &gt; Automatic updates</i> and can be undone. Uncheck <i>Follow catalog automatically</i>
+                in the application to review the catalog updates by hand instead.
             </p>
 
             <h2>{{ lang._('3. Example: send an application through a VPN (policy routing)') }}</h2>

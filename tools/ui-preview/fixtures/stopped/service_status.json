@@ -1,0 +1,43 @@
+{
+  "status": "stopped",
+  "pid": null,
+  "version": null,
+  "installed_version": "0.6",
+  "restart_needed": null,
+  "error": null,
+  "apps": {
+    "5e1b7c42-3a9d-4f60-8c1e-2b7d9a4e6f10": {
+      "uuid": "5e1b7c42-3a9d-4f60-8c1e-2b7d9a4e6f10",
+      "table": "APP_TWITCH",
+      "enabled": true,
+      "v4": 0,
+      "v6": 0,
+      "last_hit": null,
+      "last_error": null
+    },
+    "a7c3d915-6e28-4b0a-9f47-1d5e8b3c2a64": {
+      "uuid": "a7c3d915-6e28-4b0a-9f47-1d5e8b3c2a64",
+      "table": "APP_TeamSpeak",
+      "enabled": true,
+      "v4": 0,
+      "v6": 0,
+      "last_hit": null,
+      "last_error": null
+    },
+    "c9d4e2f8-1b73-4a56-8e09-7f2a6d1b5c38": {
+      "uuid": "c9d4e2f8-1b73-4a56-8e09-7f2a6d1b5c38",
+      "table": "APP_NETFLIX",
+      "enabled": false,
+      "v4": 0,
+      "v6": 0,
+      "last_hit": null,
+      "last_error": null
+    }
+  },
+  "latency": {},
+  "widget": {
+    "caption_restart": "Restart",
+    "caption_start": "Start",
+    "caption_stop": "Stop"
+  }
+}

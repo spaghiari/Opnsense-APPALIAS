@@ -101,6 +101,55 @@ class ScoreTests(unittest.TestCase):
         self.assertTrue(cfg)
 
 
+class CoveredTests(unittest.TestCase):
+    """Classement « already covered » : la chaîne CNAME du nom passe par un nom
+    couvert par la même application, le relais ajoute déjà ses adresses."""
+
+    def test_chain_is_covered(self):
+        out = build()
+        for name in ("api.streamcdn.net", "video.streamcdn.net", "d111.cloudfront.net"):
+            item = by(out, name, "STREAM")[0]
+            self.assertIn("chain", [r["code"] for r in item["reasons"]], name)
+            self.assertTrue(item["covered"], name)
+        # même cible CNAME qu'un nom couvert, mais pas dans sa chaîne : proposition utile
+        self.assertFalse(by(out, "img.streamcdn.net", "STREAM")[0]["covered"])
+        self.assertFalse(by(out, "beacon.stats.org", "STREAM")[0]["covered"])
+        self.assertFalse(by(out, "chat-media.example.net", "CHAT")[0]["covered"])
+
+    def test_counts_only_useful(self):
+        out = build()
+        self.assertEqual(score.count_useful(out["proposals"]), {STREAM: 2, CHAT: 1})
+        self.assertEqual(score.count_useful([]), {})
+
+    def test_without_follow_cname_nothing_is_covered(self):
+        cfg = cfgmod.from_dict(CONFIG)
+        suffixes = score.Suffixes()
+        apps = [score.AppRules(a, PLATFORMS, suffixes) for a in cfg.apps]
+        out = score.build(load_fixture(), apps, PLATFORMS, suffixes, {},
+                          ignored=discmod.Ignored(cfg.discovery_ignored), follow_cname=False)
+        self.assertFalse(any(p["covered"] for p in out["proposals"]))
+        self.assertEqual(score.count_useful(out["proposals"]), {STREAM: 5, CHAT: 1})
+
+    def test_is_covered(self):
+        self.assertTrue(score.is_covered([{"code": "same_site"}, {"code": "chain", "name": "a.example"}]))
+        self.assertFalse(score.is_covered([{"code": "cname_neighbor"}]))
+        self.assertFalse(score.is_covered([{"code": "chain"}], follow_cname=False))
+        self.assertFalse(score.is_covered([]))
+
+    def test_cli_follow_cname_off(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = os.path.join(tmp, "config.json")
+            data = os.path.join(tmp, "discovery.json")
+            general = dict(CONFIG["general"], follow_cname=False)
+            with open(config, "w", encoding="utf-8") as fh:
+                json.dump(dict(CONFIG, general=general), fh)
+            with open(FIXTURE, "r", encoding="utf-8") as src, open(data, "w", encoding="utf-8") as dst:
+                dst.write(src.read())
+            out = disccli.cmd_list(config, data, now=1_000_000)
+        self.assertEqual(out["covered"], 0)
+        self.assertEqual(out["counts"][STREAM], 5)
+
+
 class BudgetTests(unittest.TestCase):
     def test_timeout_during_regex_search(self):
         """Échéance pendant une recherche (faux _Budget) : regexps abandonnées,
@@ -169,7 +218,9 @@ class CliTests(unittest.TestCase):
         self.assertEqual(out["uncovered"], 9)
         self.assertEqual(out["observed"], 11)
         self.assertEqual(out["dropped"], 3)
-        self.assertGreater(out["counts"][STREAM], 3)
+        # « already covered » (chaîne CNAME par un nom de STREAM) : hors compteurs
+        self.assertEqual(out["counts"][STREAM], 2)
+        self.assertEqual(out["covered"], 3)
         self.assertEqual(out["learn"]["new"], ["lonely.example.io"])
 
     def test_list_disabled_or_corrupt(self):

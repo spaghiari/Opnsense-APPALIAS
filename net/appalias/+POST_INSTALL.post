@@ -10,3 +10,9 @@ fi
 # l'option est active (--if-enabled lit config.json). Jamais bloquant :
 # daemon(8) détache le processus ; en cas d'échec, le cron quotidien reprend.
 /usr/sbin/daemon -f /usr/local/bin/python3 /usr/local/opnsense/scripts/OPNsense/AppAlias/catalog_update.py update --if-enabled > /dev/null 2>&1 || true
+
+# Suivi automatique du catalogue : un catalogue embarqué plus récent arrive
+# avec le paquet ; les applications qui le suivent reçoivent ses nouveautés
+# (migration du modèle déjà faite à ce stade). Sans changement, rien n'est
+# enregistré ni appliqué. En tâche de fond, jamais bloquant.
+/usr/sbin/daemon -f /usr/local/opnsense/scripts/OPNsense/AppAlias/catalog_follow.php run > /dev/null 2>&1 || true

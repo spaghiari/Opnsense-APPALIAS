@@ -1,0 +1,260 @@
+{
+  "twitch": {
+    "ref": "twitch",
+    "name": "twitch",
+    "suggested_name": "TWITCH",
+    "importable": true,
+    "broken": null,
+    "missing": [],
+    "unknown": 2,
+    "count": 11,
+    "rules": [
+      {
+        "rule": "domain:twitch.tv",
+        "kind": "domain",
+        "value": "twitch.tv",
+        "attrs": [],
+        "discovery": false,
+        "shared": false,
+        "refused": null
+      },
+      {
+        "rule": "domain:ttvnw.net",
+        "kind": "domain",
+        "value": "ttvnw.net",
+        "attrs": [],
+        "discovery": false,
+        "shared": false,
+        "refused": null
+      },
+      {
+        "rule": "domain:jtvnw.net",
+        "kind": "domain",
+        "value": "jtvnw.net",
+        "attrs": [],
+        "discovery": false,
+        "shared": false,
+        "refused": null
+      },
+      {
+        "rule": "domain:twitchcdn.net",
+        "kind": "domain",
+        "value": "twitchcdn.net",
+        "attrs": [],
+        "discovery": false,
+        "shared": false,
+        "refused": null
+      },
+      {
+        "rule": "domain:twitchsvc.net",
+        "kind": "domain",
+        "value": "twitchsvc.net",
+        "attrs": [],
+        "discovery": false,
+        "shared": false,
+        "refused": null
+      },
+      {
+        "rule": "domain:ads.twitch.tv",
+        "kind": "domain",
+        "value": "ads.twitch.tv",
+        "attrs": [
+          "ads"
+        ],
+        "discovery": false,
+        "shared": false,
+        "refused": null
+      },
+      {
+        "rule": "full:twitch.map.fastly.net",
+        "kind": "full",
+        "value": "twitch.map.fastly.net",
+        "attrs": [],
+        "discovery": false,
+        "shared": true,
+        "refused": null
+      },
+      {
+        "rule": "domain:cloudfront.net",
+        "kind": "domain",
+        "value": "cloudfront.net",
+        "attrs": [],
+        "discovery": false,
+        "shared": true,
+        "refused": "shared"
+      },
+      {
+        "rule": "domain:tv",
+        "kind": "domain",
+        "value": "tv",
+        "attrs": [],
+        "discovery": false,
+        "shared": false,
+        "refused": "tld"
+      },
+      {
+        "rule": "keyword:twitch",
+        "kind": "keyword",
+        "value": "twitch",
+        "attrs": [],
+        "discovery": true,
+        "shared": false,
+        "refused": null
+      },
+      {
+        "rule": "regexp:^video-edge-[a-z0-9]+\\.ttvnw\\.net$",
+        "kind": "regexp",
+        "value": "^video-edge-[a-z0-9]+\\.ttvnw\\.net$",
+        "attrs": [],
+        "discovery": true,
+        "shared": false,
+        "refused": null
+      }
+    ],
+    "revision": "3f9a1c07d2e84b5a6c10f7e9b2d4a8c5e1f03b67",
+    "max_import": 1000,
+    "warn_import": 300
+  },
+  "netflix": {
+    "ref": "netflix",
+    "name": "netflix",
+    "suggested_name": "NETFLIX",
+    "importable": true,
+    "broken": null,
+    "missing": [],
+    "unknown": 2,
+    "count": 7,
+    "rules": [
+      {
+        "rule": "domain:netflix.com",
+        "kind": "domain",
+        "value": "netflix.com",
+        "attrs": [],
+        "discovery": false,
+        "shared": false,
+        "refused": null
+      },
+      {
+        "rule": "domain:nflxvideo.net",
+        "kind": "domain",
+        "value": "nflxvideo.net",
+        "attrs": [],
+        "discovery": false,
+        "shared": false,
+        "refused": null
+      },
+      {
+        "rule": "domain:nflximg.net",
+        "kind": "domain",
+        "value": "nflximg.net",
+        "attrs": [],
+        "discovery": false,
+        "shared": false,
+        "refused": null
+      },
+      {
+        "rule": "domain:nflxso.net",
+        "kind": "domain",
+        "value": "nflxso.net",
+        "attrs": [],
+        "discovery": false,
+        "shared": false,
+        "refused": null
+      },
+      {
+        "rule": "domain:nflxext.com",
+        "kind": "domain",
+        "value": "nflxext.com",
+        "attrs": [],
+        "discovery": false,
+        "shared": false,
+        "refused": null
+      },
+      {
+        "rule": "domain:ads.netflix.com",
+        "kind": "domain",
+        "value": "ads.netflix.com",
+        "attrs": [
+          "ads"
+        ],
+        "discovery": false,
+        "shared": false,
+        "refused": null
+      },
+      {
+        "rule": "full:occ-0-1.1.nflxso.net",
+        "kind": "full",
+        "value": "occ-0-1.1.nflxso.net",
+        "attrs": [
+          "ads"
+        ],
+        "discovery": false,
+        "shared": false,
+        "refused": null
+      }
+    ],
+    "revision": "3f9a1c07d2e84b5a6c10f7e9b2d4a8c5e1f03b67",
+    "max_import": 1000,
+    "warn_import": 300
+  },
+  "*": {
+    "ref": "*",
+    "name": "list",
+    "suggested_name": "LIST",
+    "importable": true,
+    "broken": null,
+    "missing": [],
+    "unknown": 2,
+    "count": 5,
+    "rules": [
+      {
+        "rule": "domain:twitch.tv",
+        "kind": "domain",
+        "value": "twitch.tv",
+        "attrs": [],
+        "discovery": false,
+        "shared": false,
+        "refused": null
+      },
+      {
+        "rule": "domain:ttvnw.net",
+        "kind": "domain",
+        "value": "ttvnw.net",
+        "attrs": [],
+        "discovery": false,
+        "shared": false,
+        "refused": null
+      },
+      {
+        "rule": "domain:jtvnw.net",
+        "kind": "domain",
+        "value": "jtvnw.net",
+        "attrs": [],
+        "discovery": false,
+        "shared": false,
+        "refused": null
+      },
+      {
+        "rule": "domain:twitchcdn.net",
+        "kind": "domain",
+        "value": "twitchcdn.net",
+        "attrs": [],
+        "discovery": false,
+        "shared": false,
+        "refused": null
+      },
+      {
+        "rule": "domain:twitchsvc.net",
+        "kind": "domain",
+        "value": "twitchsvc.net",
+        "attrs": [],
+        "discovery": false,
+        "shared": false,
+        "refused": null
+      }
+    ],
+    "revision": "3f9a1c07d2e84b5a6c10f7e9b2d4a8c5e1f03b67",
+    "max_import": 1000,
+    "warn_import": 300
+  }
+}

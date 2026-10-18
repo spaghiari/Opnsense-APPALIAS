@@ -45,7 +45,10 @@ class SettingsController extends ApiMutableModelControllerBase
     {
         return $this->searchBase(
             'apps.app',
-            ['enabled', 'name', 'description', 'origin', 'domains', 'networks', 'families', 'catalog_refs'],
+            [
+                'enabled', 'name', 'description', 'origin', 'domains', 'networks', 'families', 'catalog_refs',
+                'catalog_follow',
+            ],
             'name'
         );
     }

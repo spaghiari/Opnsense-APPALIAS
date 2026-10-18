@@ -1,0 +1,63 @@
+{
+  "query": "netflix",
+  "results": [
+    {
+      "name": "netflix",
+      "rules": 366,
+      "attrs": [
+        "ads"
+      ],
+      "includes": [],
+      "broken": null,
+      "missing": [],
+      "match": "name"
+    },
+    {
+      "name": "netflix-ads",
+      "rules": 135,
+      "attrs": [],
+      "includes": [
+        "netflix"
+      ],
+      "broken": null,
+      "missing": [],
+      "match": "name"
+    },
+    {
+      "name": "nflxvideo",
+      "rules": 87,
+      "attrs": [],
+      "includes": [],
+      "broken": null,
+      "missing": [],
+      "match": "domain",
+      "via": "domain:nflxvideo.net"
+    },
+    {
+      "name": "category-media",
+      "rules": 195,
+      "attrs": [],
+      "includes": [
+        "netflix",
+        "hulu",
+        "disney"
+      ],
+      "broken": null,
+      "missing": [
+        "gone-list"
+      ],
+      "match": "domain",
+      "via": "domain:netflix.com"
+    },
+    {
+      "name": "brokenlist",
+      "rules": 317,
+      "attrs": [],
+      "includes": [],
+      "broken": "include loop",
+      "missing": [],
+      "match": "name"
+    }
+  ],
+  "max": 50
+}

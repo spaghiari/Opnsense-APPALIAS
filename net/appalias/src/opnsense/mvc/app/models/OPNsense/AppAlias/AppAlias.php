@@ -164,6 +164,20 @@ class AppAlias extends BaseModel
     }
 
     /**
+     * Forme canonique d'une règle, comme lib/follow.py rule_key :
+     * « Example.com » et « domain:example.com » donnent « domain:example.com ».
+     */
+    public static function ruleKey($rule)
+    {
+        $rule = trim((string)$rule);
+        if (preg_match('/^(domain|full|keyword|regexp):(.*)$/is', $rule, $m) === 1) {
+            $kind = strtolower($m[1]);
+            return $kind . ':' . ($kind === 'regexp' ? $m[2] : self::normalizeHost($m[2]));
+        }
+        return 'domain:' . self::normalizeHost($rule);
+    }
+
+    /**
      * Plateformes partagées du fichier data/shared_platforms.txt.
      * @return array liste de noms
      */

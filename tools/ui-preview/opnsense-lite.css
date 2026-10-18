@@ -1,0 +1,141 @@
+/*
+ * Imitation légère du thème OPNsense (stable/26.7, themes/opnsense/build/css/main.css)
+ * pour le banc de prévisualisation : police, couleurs, panneaux, onglets,
+ * tailles de .btn-xs et .label. Valeurs relevées dans le thème ; la police
+ * SourceSansPro du pare-feu n'est pas chargée (pas de CDN), un repli
+ * sans empattement est utilisé : les largeurs de texte diffèrent un peu.
+ */
+body {
+    font-family: "Source Sans Pro", "SourceSansProRegular", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 15px;
+    font-weight: 400;
+    line-height: 1.2;
+    color: #373736;
+    background-color: #fff;
+    margin: 0;
+}
+a { color: #C03E14; text-decoration: none; }
+a:hover, a:focus { color: #7b280d; text-decoration: underline; }
+
+/* Barre du haut */
+.opn-topbar {
+    background: #fff; border-bottom: 1px solid #eee; min-height: 50px;
+    display: flex; align-items: center; gap: 16px; padding: 0 15px;
+}
+.opn-topbar .opn-brand { font-size: 22px; font-weight: 700; color: #C03E14; letter-spacing: -0.5px; }
+.opn-topbar .opn-brand small { color: #777; font-size: 12px; font-weight: 400; margin-left: 6px; }
+.opn-topbar .opn-states { margin-left: auto; font-size: 12px; color: #777; display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.opn-topbar .opn-states a.active { color: #373736; font-weight: 700; text-decoration: underline; }
+
+/* En-tête de page et zone de contenu */
+.page-content-head { background: #FBFBFB; border-bottom: 1px solid rgba(217, 217, 217, 0.5); padding: 20px 0 15px; }
+.page-content-head .breadcrumb { background: transparent; margin: 0 0 6px; padding: 0; font-size: 13px; }
+.page-content-head h1 { font-size: 22px; line-height: 1; margin: 0; }
+.page-content-head #service_status_container { display: flex; align-items: center; gap: 6px; }
+.page-content-main { background: #F7F7F7; padding: 15px 0 73px; min-height: 80vh; }
+.content-box { background: #fff; border: 1px solid #E5E5E5; }
+.tab-content.content-box { border-top: 0; }
+.page-content-main section[class^="col-"] + section[class^="col-"] { padding-top: 20px; }
+
+/* Onglets */
+.nav-tabs { border-bottom: 1px solid #E5E5E5; }
+.nav-tabs > li > a {
+    margin-right: 2px; line-height: 1.2; border-radius: 3px 3px 0 0;
+    border: 1px solid #eee; border-bottom: 1px solid #989898; color: #C03E14;
+}
+.nav-tabs > li > a:hover { border-color: #eee #eee #E5E5E5; }
+.nav-tabs > li.active > a, .nav-tabs > li.active > a:hover, .nav-tabs > li.active > a:focus {
+    color: #555; background-color: #fff; border: 1px solid #ddd; border-bottom-color: transparent; cursor: default;
+}
+
+/* Panneaux, tableaux, alertes */
+.panel { margin-bottom: 18px; background-color: #fff; border: 1px solid transparent; border-radius: 3px; }
+.panel-default { border-color: #ddd; }
+.panel-default > .panel-heading { color: #333; background-color: #f5f5f5; border-color: #ddd; }
+.panel-default > .panel-heading .badge { color: #f5f5f5; background-color: #333; }
+.panel-body { padding: 15px; }
+.table > thead > tr > th, .table > thead > tr > td, .table > tbody > tr > th, .table > tbody > tr > td,
+.table > tfoot > tr > th, .table > tfoot > tr > td {
+    padding: 10px 0 10px 20px; line-height: 1.2; vertical-align: top; border-top: 1px solid #eee;
+}
+.table-condensed > tbody > tr > td, .table-condensed > tbody > tr > th { padding: 8px 0 8px 20px; }
+.table-striped > tbody > tr:nth-child(odd) > td, .table-striped > tbody > tr:nth-child(odd) > th { background-color: #FBFBFB; }
+.table > thead > tr > th { font-weight: 600; }
+.alert { padding: 15px; margin-bottom: 18px; border: 1px solid transparent; border-radius: 3px; }
+.alert-info { background-color: #d9edf7; border-color: #bbe7f0; color: #173443; }
+h2, h3 { font-weight: 600; }
+
+/* Boutons */
+.btn-default { color: #444; background-color: #fff; border-color: #e5e5e5; }
+.btn-default:hover, .btn-default:focus { color: #444; background-color: #e5e5e5; border-color: #c6c6c6; }
+.btn-primary { color: #fff; background-color: #C03E14; border-color: #C03E14; }
+.btn-primary:hover, .btn-primary:focus, .btn-primary:active { color: #fff; background-color: #96300f; border-color: #7b280d; }
+.btn-xs, .btn-group-xs > .btn { padding: 1px 5px; font-size: 13px; line-height: 1.5; border-radius: 3px; }
+.input-sm, .btn-sm { font-size: 13px; line-height: 1.5; border-radius: 3px; }
+
+/* Pastilles */
+.label {
+    display: inline; padding: 0.2em 0.6em 0.3em; font-size: 75%; font-weight: bold; line-height: 1;
+    color: #fff; text-align: center; white-space: nowrap; vertical-align: baseline; border-radius: 0.25em;
+}
+.label-default { background-color: #777; }
+.label-primary { background-color: #C03E14; }
+.label-success { background-color: #9BD275; }
+.label-info { background-color: #B0CDDB; }
+.label-warning { background-color: #f0ad4e; }
+.label-danger { background-color: #F05050; }
+.badge { padding: 3px 7px; font-size: 13px; font-weight: bold; background-color: #777; border-radius: 10px; }
+
+/* Formulaires générés par base_form / form_input_tr */
+.form-inline .form-control { display: inline-block; width: auto; vertical-align: middle; }
+td select.form-control { width: 346px; max-width: 100%; }
+.control-label { font-weight: 400; }
+.control-label .showhelp { color: #C03E14; }
+.help-block { margin: 5px 0 0; }
+.tokenize ul.tokens-container {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 3px; list-style: none; margin: 0;
+    padding: 3px 6px; width: 346px; max-width: 100%; min-height: 34px; height: auto;
+}
+.tokenize ul.tokens-container li.token { background: #eee; border: 1px solid #ccc; border-radius: 3px; padding: 1px 6px; font-size: 13px; }
+.tokenize ul.tokens-container li.token a { margin-left: 6px; color: #777; cursor: pointer; }
+.tokenize ul.tokens-container li.token-input input { border: 0; outline: 0; width: 80px; background: transparent; }
+
+/* Grille (bootgrid minimal) */
+.bootgrid-header, .bootgrid-footer { padding: 8px 15px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.bootgrid-header .search { width: 220px; }
+.bootgrid-header .actions { margin-left: auto; display: flex; gap: 4px; align-items: center; }
+.bootgrid-footer { color: #777; font-size: 13px; justify-content: space-between; }
+table.bootgrid-table { margin-bottom: 0; }
+table.bootgrid-table th { white-space: nowrap; }
+
+/* Modales Bootstrap */
+.modal-header { background: #f5f5f5; }
+
+/*
+ * Bootstrap 3.4.1 applique `.table-responsive { overflow-x: auto }` à toutes les
+ * largeurs ; le thème OPNsense ne le fait qu'en dessous de 768 px
+ * (main.css, @media screen and (max-width: 767px)). Sans ce correctif, la
+ * table de base_form, un bloc à contexte de formatage propre placé à côté
+ * d'un `.col-md-12` flottant, est réduite à 0 px de large (formulaire invisible).
+ */
+.table-responsive { min-height: 0; overflow-x: visible; }
+@media screen and (max-width: 767px) {
+    .table-responsive { width: 100%; margin-bottom: 13.5px; overflow-y: hidden; overflow-x: auto; }
+    .table-responsive > .table { margin-bottom: 0; }
+    .table-responsive > .table > thead > tr > th, .table-responsive > .table > thead > tr > td,
+    .table-responsive > .table > tbody > tr > th, .table-responsive > .table > tbody > tr > td,
+    .table-responsive > .table > tfoot > tr > th, .table-responsive > .table > tfoot > tr > td { white-space: nowrap; }
+}
+/* Le thème donne 20 px de gouttière aux colonnes (Bootstrap : 15 px). */
+.col-xs-1, .col-sm-1, .col-md-1, .col-lg-1, .col-xs-2, .col-sm-2, .col-md-2, .col-lg-2, .col-xs-3, .col-sm-3,
+.col-md-3, .col-lg-3, .col-xs-4, .col-sm-4, .col-md-4, .col-lg-4, .col-xs-6, .col-sm-6, .col-md-6, .col-lg-6,
+.col-xs-12, .col-sm-12, .col-md-12, .col-lg-12 { padding-left: 20px; padding-right: 20px; }
+
+/* Grille bootgrid (jquery.bootgrid.css) : colonnes fixes, texte tronqué par des points de suspension. */
+table.bootgrid-table { table-layout: fixed; }
+table.bootgrid-table td, table.bootgrid-table th { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (max-width: 767px) {
+    .opn-topbar { flex-wrap: wrap; padding: 6px 15px; }
+    .opn-topbar > .text-muted { display: none; }
+}

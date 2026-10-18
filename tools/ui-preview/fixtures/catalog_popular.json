@@ -1,0 +1,396 @@
+{
+  "categories": [
+    {
+      "name": "Streaming",
+      "lists": [
+        {
+          "name": "youtube",
+          "rules": 109,
+          "attrs": [
+            "ads"
+          ],
+          "includes": [],
+          "broken": null,
+          "missing": [],
+          "match": "popular"
+        },
+        {
+          "name": "twitch",
+          "rules": 395,
+          "attrs": [
+            "ads"
+          ],
+          "includes": [],
+          "broken": null,
+          "missing": [],
+          "match": "popular"
+        },
+        {
+          "name": "netflix",
+          "rules": 366,
+          "attrs": [
+            "ads"
+          ],
+          "includes": [],
+          "broken": null,
+          "missing": [],
+          "match": "popular"
+        },
+        {
+          "name": "disney",
+          "rules": 136,
+          "attrs": [],
+          "includes": [],
+          "broken": null,
+          "missing": [],
+          "match": "popular"
+        },
+        {
+          "name": "primevideo",
+          "rules": 464,
+          "attrs": [],
+          "includes": [],
+          "broken": null,
+          "missing": [],
+          "match": "popular"
+        },
+        {
+          "name": "hulu",
+          "rules": 194,
+          "attrs": [],
+          "includes": [],
+          "broken": null,
+          "missing": [],
+          "match": "popular"
+        },
+        {
+          "name": "hbo",
+          "rules": 73,
+          "attrs": [],
+          "includes": [],
+          "broken": null,
+          "missing": [],
+          "match": "popular"
+        }
+      ]
+    },
+    {
+      "name": "Music",
+      "lists": [
+        {
+          "name": "spotify",
+          "rules": 146,
+          "attrs": [
+            "ads"
+          ],
+          "includes": [],
+          "broken": null,
+          "missing": [],
+          "match": "popular"
+        },
+        {
+          "name": "deezer",
+          "rules": 135,
+          "attrs": [],
+          "includes": [],
+          "broken": null,
+          "missing": [],
+          "match": "popular"
+        },
+        {
+          "name": "soundcloud",
+          "rules": 428,
+          "attrs": [],
+          "includes": [],
+          "broken": null,
+          "missing": [],
+          "match": "popular"
+        },
+        {
+          "name": "tidal",
+          "rules": 274,
+          "attrs": [],
+          "includes": [],
+          "broken": null,
+          "missing": [],
+          "match": "popular"
+        }
+      ]
+    },
+    {
+      "name": "Gaming",
+      "lists": [
+        {
+          "name": "steam",
+          "rules": 238,
+          "attrs": [],
+          "includes": [],
+          "broken": null,
+          "missing": [],
+          "match": "popular"
+        },
+        {
+          "name": "epicgames",
+          "rules": 306,
+          "attrs": [],
+          "includes": [],
+          "broken": null,
+          "missing": [],
+          "match": "popular"
+        },
+        {
+          "name": "blizzard",
+          "rules": 374,
+          "attrs": [],
+          "includes": [],
+          "broken": null,
+          "missing": [],
+          "match": "popular"
+        },
+        {
+          "name": "playstation",
+          "rules": 68,
+          "attrs": [],
+          "includes": [],
+          "broken": null,
+          "missing": [],
+          "match": "popular"
+        },
+        {
+          "name": "xbox",
+          "rules": 305,
+          "attrs": [],
+          "includes": [],
+          "broken": null,
+          "missing": [],
+          "match": "popular"
+        },
+        {
+          "name": "nintendo",
+          "rules": 263,
+          "attrs": [],
+          "includes": [],
+          "broken": null,
+          "missing": [],
+          "match": "popular"
+        },
+        {
+          "name": "riot",
+          "rules": 194,
+          "attrs": [],
+          "includes": [],
+          "broken": null,
+          "missing": [],
+          "match": "popular"
+        },
+        {
+          "name": "ea",
+          "rules": 138,
+          "attrs": [],
+          "includes": [],
+          "broken": null,
+          "missing": [],
+          "match": "popular"
+        }
+      ]
+    },
+    {
+      "name": "Messaging",
+      "lists": [
+        {
+          "name": "discord",
+          "rules": 180,
+          "attrs": [],
+          "includes": [],
+          "broken": null,
+          "missing": [],
+          "match": "popular"
+        },
+        {
+          "name": "whatsapp",
+          "rules": 116,
+          "attrs": [],
+          "includes": [],
+          "broken": null,
+          "missing": [],
+          "match": "popular"
+        },
+        {
+          "name": "telegram",
+          "rules": 225,
+          "attrs": [],
+          "includes": [],
+          "broken": null,
+          "missing": [],
+          "match": "popular"
+        },
+        {
+          "name": "signal",
+          "rules": 98,
+          "attrs": [],
+          "includes": [],
+          "broken": null,
+          "missing": [],
+          "match": "popular"
+        },
+        {
+          "name": "line",
+          "rules": 340,
+          "attrs": [],
+          "includes": [],
+          "broken": null,
+          "missing": [],
+          "match": "popular"
+        }
+      ]
+    },
+    {
+      "name": "Social",
+      "lists": [
+        {
+          "name": "tiktok",
+          "rules": 26,
+          "attrs": [],
+          "includes": [],
+          "broken": null,
+          "missing": [],
+          "match": "popular"
+        },
+        {
+          "name": "instagram",
+          "rules": 234,
+          "attrs": [],
+          "includes": [],
+          "broken": null,
+          "missing": [],
+          "match": "popular"
+        },
+        {
+          "name": "facebook",
+          "rules": 334,
+          "attrs": [
+            "ads"
+          ],
+          "includes": [],
+          "broken": null,
+          "missing": [],
+          "match": "popular"
+        },
+        {
+          "name": "twitter",
+          "rules": 331,
+          "attrs": [],
+          "includes": [],
+          "broken": null,
+          "missing": [],
+          "match": "popular"
+        },
+        {
+          "name": "reddit",
+          "rules": 24,
+          "attrs": [],
+          "includes": [],
+          "broken": null,
+          "missing": [],
+          "match": "popular"
+        },
+        {
+          "name": "pinterest",
+          "rules": 162,
+          "attrs": [],
+          "includes": [],
+          "broken": null,
+          "missing": [],
+          "match": "popular"
+        },
+        {
+          "name": "linkedin",
+          "rules": 114,
+          "attrs": [],
+          "includes": [],
+          "broken": null,
+          "missing": [],
+          "match": "popular"
+        }
+      ]
+    },
+    {
+      "name": "Productivity",
+      "lists": [
+        {
+          "name": "zoom",
+          "rules": 453,
+          "attrs": [],
+          "includes": [],
+          "broken": null,
+          "missing": [],
+          "match": "popular"
+        },
+        {
+          "name": "microsoft",
+          "rules": 346,
+          "attrs": [],
+          "includes": [],
+          "broken": null,
+          "missing": [],
+          "match": "popular"
+        },
+        {
+          "name": "apple",
+          "rules": 422,
+          "attrs": [],
+          "includes": [],
+          "broken": null,
+          "missing": [],
+          "match": "popular"
+        },
+        {
+          "name": "google",
+          "rules": 61,
+          "attrs": [],
+          "includes": [],
+          "broken": null,
+          "missing": [],
+          "match": "popular"
+        },
+        {
+          "name": "slack",
+          "rules": 274,
+          "attrs": [],
+          "includes": [],
+          "broken": null,
+          "missing": [],
+          "match": "popular"
+        },
+        {
+          "name": "dropbox",
+          "rules": 34,
+          "attrs": [],
+          "includes": [],
+          "broken": null,
+          "missing": [],
+          "match": "popular"
+        },
+        {
+          "name": "github",
+          "rules": 283,
+          "attrs": [],
+          "includes": [],
+          "broken": null,
+          "missing": [],
+          "match": "popular"
+        },
+        {
+          "name": "notion",
+          "rules": 63,
+          "attrs": [],
+          "includes": [],
+          "broken": null,
+          "missing": [],
+          "match": "popular"
+        }
+      ]
+    }
+  ],
+  "missing": []
+}

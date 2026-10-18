@@ -9,3 +9,5 @@ dist/
 # certificats et clé de test (publics, réservés aux tests)
 !tests/fixtures/tls/*.pem
 !tests/fixtures/tls/*.key
+# banc de prévisualisation de l'interface (généré par tools/ui-preview/build.py)
+tools/ui-preview/out/

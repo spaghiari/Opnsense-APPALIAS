@@ -1,0 +1,37 @@
+{
+  "status": "running",
+  "pid": 4821,
+  "version": "0.6",
+  "installed_version": "0.6",
+  "restart_needed": false,
+  "error": null,
+  "apps": {},
+  "latency": {
+    "window": 256,
+    "upstreams": {
+      "192.0.2.53@853": {
+        "count": 4120,
+        "window": 256,
+        "avg_ms": 11.4,
+        "p95_ms": 28.0
+      },
+      "192.0.2.54@853": {
+        "count": 12,
+        "window": 12,
+        "avg_ms": 14.9,
+        "p95_ms": 31.5
+      }
+    },
+    "pf": {
+      "count": 3810,
+      "window": 256,
+      "avg_ms": 0.4,
+      "p95_ms": 1.1
+    }
+  },
+  "widget": {
+    "caption_restart": "Restart",
+    "caption_start": "Start",
+    "caption_stop": "Stop"
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "enabled": true,
+  "exported": true,
+  "data": true,
+  "saved": 1792291200,
+  "observed": 214,
+  "uncovered": 87,
+  "proposals": 3,
+  "covered": 2,
+  "unassigned": 2,
+  "dropped": 0,
+  "retention_days": 7,
+  "window": 5,
+  "learn": {
+    "active": true,
+    "start": 1792291154,
+    "until": 1792291274,
+    "remaining": 74,
+    "app_uuid": null,
+    "events": 58,
+    "stopped": null,
+    "names": [
+      "update.teamspeak.com",
+      "weblist.teamspeak.com",
+      "gateway.discord.gg",
+      "www.googletagmanager.com",
+      "usher.ttvnw.net",
+      "ntp.ubuntu.com"
+    ],
+    "new": [
+      "update.teamspeak.com",
+      "gateway.discord.gg"
+    ]
+  },
+  "counts": {
+    "5e1b7c42-3a9d-4f60-8c1e-2b7d9a4e6f10": 2,
+    "a7c3d915-6e28-4b0a-9f47-1d5e8b3c2a64": 1
+  },
+  "ignored": [
+    "full:ads.twitch.tv"
+  ],
+  "regex_timeout": false,
+  "error": null
+}

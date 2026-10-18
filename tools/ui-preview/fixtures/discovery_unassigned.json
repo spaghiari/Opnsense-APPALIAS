@@ -1,0 +1,42 @@
+{
+  "groups": [
+    {
+      "site": "discord.gg",
+      "views": 41,
+      "names": [
+        {
+          "name": "gateway.discord.gg",
+          "views": 41,
+          "first": 1792284000,
+          "last": 1792291140,
+          "new": true,
+          "shared": false,
+          "learn": true,
+          "site": "discord.gg",
+          "v2fly": [
+            "discord"
+          ]
+        }
+      ]
+    },
+    {
+      "site": "spotify.com",
+      "views": 18,
+      "names": [
+        {
+          "name": "spclient.wg.spotify.com",
+          "views": 18,
+          "first": 1792204800,
+          "last": 1792290300,
+          "new": false,
+          "shared": false,
+          "learn": false,
+          "site": "spotify.com",
+          "v2fly": [
+            "spotify"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -112,7 +112,7 @@ def cmd_list(config_path, data_path, now=None):
     out = {"enabled": False, "data": False, "saved": None, "observed": 0, "uncovered": 0,
            "dropped": 0, "queued": 0, "retention_days": cfgmod.DISCOVERY_RETENTION[0],
            "window": cfgmod.DISCOVERY_WINDOW[0], "proposals": [], "unassigned": [],
-           "learn": None, "counts": {}, "regex_timeout": False, "error": None}
+           "learn": None, "counts": {}, "covered": 0, "regex_timeout": False, "error": None}
     try:
         cfg = cfgmod.load(config_path)
     except cfgmod.ConfigError as exc:
@@ -138,12 +138,12 @@ def cmd_list(config_path, data_path, now=None):
     apps = [score.AppRules(app, platforms, suffixes, catalog_rules(app, store))
             for app in cfg.apps if app.uuid]
     result = score.build(data, apps, platforms, suffixes, domains_index,
-                         ignored=discmod.Ignored(cfg.discovery_ignored), now=now)
+                         ignored=discmod.Ignored(cfg.discovery_ignored), now=now,
+                         follow_cname=cfg.follow_cname)
     out.update(result)
-    counts = {}
-    for item in out["proposals"]:
-        counts[item["app_uuid"]] = counts.get(item["app_uuid"], 0) + 1
-    out["counts"] = counts
+    # « already covered » (adresses déjà ajoutées par la chaîne CNAME) : hors compteurs
+    out["counts"] = score.count_useful(out["proposals"])
+    out["covered"] = sum(1 for item in out["proposals"] if item.get("covered"))
     learn = data.get("learn")
     if learn is not None:
         out["learn"] = {

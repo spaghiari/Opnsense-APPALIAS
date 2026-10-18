@@ -1,5 +1,5 @@
 """Contrôles statiques du plugin : textes source en anglais (ASCII), XML bien
-formés, champs du modèle 0.3.0 (plugin 0.4), actions configd du catalogue."""
+formés, champs du modèle 0.5.0 (plugin 0.6), actions configd du catalogue."""
 
 import configparser
 import glob
@@ -70,7 +70,7 @@ class ModelTests(unittest.TestCase):
         self.root = ET.parse(os.path.join(MODEL_DIR, "AppAlias.xml")).getroot()
 
     def test_version_and_fields(self):
-        self.assertEqual(self.root.findtext("version"), "0.4.0")
+        self.assertEqual(self.root.findtext("version"), "0.5.0")
         proto = self.root.find("items/general/upstream_protocol")
         self.assertEqual((proto.get("type"), proto.findtext("Default")), ("OptionField", "dns"))
         self.assertEqual(sorted(c.tag for c in proto.find("OptionValues")), ["dns", "dot"])
@@ -134,10 +134,10 @@ class ModelTests(unittest.TestCase):
             self.assertIn(name, volt)
 
     def test_plugin_version(self):
-        self.assertRegex(read(os.path.join(PLUGIN, "Makefile")), r"PLUGIN_VERSION=\s+0.5\n")
-        self.assertIn("\n0.5\n", read(os.path.join(PLUGIN, "pkg-descr")))
+        self.assertRegex(read(os.path.join(PLUGIN, "Makefile")), r"PLUGIN_VERSION=\s+0.6\n")
+        self.assertIn("\n0.6\n", read(os.path.join(PLUGIN, "pkg-descr")))
         from lib.version import VERSION
-        self.assertEqual(VERSION, "0.5")      # version écrite par le démon = paquet
+        self.assertEqual(VERSION, "0.6")      # version écrite par le démon = paquet
 
     def test_option_defaults_are_options(self):
         """Le défaut de chaque OptionField fait partie de ses OptionValues."""
@@ -173,6 +173,56 @@ class ModelTests(unittest.TestCase):
                      "discovery_window", "discovery_ignored", "catalog_online_update"):
             self.assertIn("'%s' =>" % name, export)
 
+    def test_catalog_follow_fields(self):
+        app = self.root.find("items/apps/app")
+        follow = app.find("catalog_follow")
+        self.assertEqual((follow.get("type"), follow.findtext("Default"), follow.findtext("Required")),
+                         ("BooleanField", "0", "Y"))       # manuel = 0 ; import et migration = 1
+        declined = app.find("catalog_declined")
+        self.assertEqual((declined.get("type"), declined.findtext("Required")), ("CSVListField", "N"))
+        text = read(os.path.join(MODEL_DIR, "Migrations", "M0_5_0.php"))
+        self.assertIn("namespace OPNsense\\AppAlias\\Migrations;", text)
+        self.assertIn("class M0_5_0 extends BaseModelMigration", text)
+        self.assertIn("parent::run($model);", text)
+        self.assertIn("catalog_declined->setValue", text)
+        form = ET.parse(os.path.join(FORMS, "dialogApp.xml")).getroot()
+        fields = {f.findtext("id"): f for f in form.findall("field")}
+        self.assertEqual(fields["app.catalog_follow"].findtext("type"), "checkbox")
+        self.assertEqual(fields["app.catalog_follow"].findtext("label"), "Follow catalog automatically")
+        self.assertNotIn("app.catalog_declined", fields)
+        ctrl = read(os.path.join(MVC, "controllers", "OPNsense", "AppAlias", "Api", "CatalogController.php"))
+        self.assertIn("public function undoFollowAction()", ctrl)
+        self.assertIn("public function followLogAction()", ctrl)
+        self.assertEqual(ctrl.count("'catalog_follow' => '1'"), 1)     # import : nouvelle app
+        self.assertIn("if (!$hadRefs) {", ctrl)                         # fusion : seulement si aucune liste liée
+        self.assertIn("$values['catalog_follow'] = '1';", ctrl)
+        settings = read(os.path.join(MVC, "controllers", "OPNsense", "AppAlias", "Api", "SettingsController.php"))
+        self.assertIn("'catalog_follow'", settings)
+        script = read(os.path.join(SRC, "opnsense", "scripts", "OPNsense", "AppAlias", "catalog_follow.php"))
+        for needle in ("$cfg->lock();", "$cfg->unlock();", "serializeToConfig()", "$cfg->save();",
+                       "export_config.php", "sync_aliases.php", "unbound_forward.py', '--apply'", "onereload",
+                       "LOG_INFO"):
+            self.assertIn(needle, script)
+        # le verrou de config.xml est rendu avant l'enchaînement (sync_aliases.php le reprend)
+        self.assertLess(script.index("$cfg->unlock();"), script.index("$failed = appalias_apply();"))
+
+    def test_volt_follow_and_covered(self):
+        volt = read(os.path.join(MVC, "views", "OPNsense", "AppAlias", "index.volt"))
+        for needle in ("'/api/appalias/catalog/followLog'", "'/api/appalias/catalog/undoFollow'",
+                       'id="catalog-follow-log"', 'id="discovery-covered"', "onBeforeRenderDialog",
+                       "row_app.catalog_follow", "lang._('Automatic updates')",
+                       "lang._('Already covered (IPs added through CNAME)')|escape_js"):
+            self.assertIn(needle, volt)
+        style = volt[volt.index("<style>"):volt.index("</style>")]
+        self.assertGreater(len(set(re.findall(r"\.(appalias-[a-z0-9-]+)", style))), 20)
+        # chaque sélecteur CSS porte une classe appalias- : rien de Bootstrap n'est redéfini globalement
+        for line in style.splitlines():
+            line = line.strip()
+            if line.endswith("{") and not line.startswith("@media"):
+                for selector in line[:-1].split(","):
+                    if selector.strip():
+                        self.assertIn("appalias-", selector, line)
+
     def test_cron_and_post_install(self):
         inc = read(os.path.join(SRC, "etc", "inc", "plugins.inc.d", "appalias.inc"))
         self.assertIn("function appalias_cron()", inc)
@@ -181,6 +231,7 @@ class ModelTests(unittest.TestCase):
         post = read(os.path.join(PLUGIN, "+POST_INSTALL.post"))
         self.assertIn("/usr/sbin/daemon -f /usr/local/bin/python3 /usr/local/opnsense/scripts/OPNsense/AppAlias/catalog_update.py "
                       "update --if-enabled", post)
+        self.assertIn("/usr/sbin/daemon -f /usr/local/opnsense/scripts/OPNsense/AppAlias/catalog_follow.php run", post)
         rc = read(os.path.join(SRC, "etc", "rc.d", "appaliasd"))
         self.assertIn('extra_commands="reload ctl"', rc)
         self.assertIn("appaliasd_signal USR1", rc)
@@ -216,6 +267,12 @@ class ActionTests(unittest.TestCase):
                           cp["discovery_ctl"]["type"]), (base + "discovery.py ctl", "%s", "script"))
         self.assertEqual(cp["catalog_update"]["command"], base + "catalog_update.py update")
         self.assertEqual(cp["catalog_reset"]["command"], base + "catalog_update.py reset")
+        self.assertEqual((cp["catalog_follow"]["command"], cp["catalog_follow"]["type"]),
+                         (base + "catalog_follow.php run", "script_output"))
+        self.assertEqual((cp["catalog_follow_undo"]["command"], cp["catalog_follow_undo"]["parameters"],
+                          cp["catalog_follow_undo"]["type"]),
+                         (base + "catalog_follow.php undo", "%s", "script_output"))
+        self.assertEqual(cp["catalog_follow_log"]["command"], base + "catalog_follow.py log")
 
     def test_unbound_actions(self):
         cp = configparser.ConfigParser(delimiters=(":",), interpolation=None)

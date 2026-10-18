@@ -43,6 +43,9 @@ use OPNsense\Core\Config;
  *
  * accept enregistre la règle dans l'application (validation du modèle et
  * garde-fou des plateformes partagées) ; rien n'est appliqué avant « Apply ».
+ * Les propositions « already covered » (covered : adresses déjà ajoutées
+ * par la chaîne CNAME) sont rendues pour l'information mais ne sont comptées
+ * ni dans « proposals » ni dans « counts » (pastille de la grille).
  * Les règles ignorées (general.discovery_ignored) sont filtrées ici tout de
  * suite, et par le démon à la source après le prochain « Apply ».
  */
@@ -150,7 +153,14 @@ class DiscoveryController extends ApiControllerBase
         $data = $this->listData();
         list($proposals, $groups) = $this->proposalsData();
         $counts = [];
+        $useful = 0;
+        $covered = 0;
         foreach ($proposals as $item) {
+            if (!empty($item['covered'])) {
+                $covered++;
+                continue;
+            }
+            $useful++;
             $uuid = (string)($item['app_uuid'] ?? '');
             $counts[$uuid] = ($counts[$uuid] ?? 0) + 1;
         }
@@ -166,7 +176,8 @@ class DiscoveryController extends ApiControllerBase
             'saved' => $data['saved'] ?? null,
             'observed' => (int)($data['observed'] ?? 0),
             'uncovered' => (int)($data['uncovered'] ?? 0),
-            'proposals' => count($proposals),
+            'proposals' => $useful,
+            'covered' => $covered,
             'unassigned' => $unassigned,
             'dropped' => (int)($data['dropped'] ?? 0),
             'retention_days' => (int)($data['retention_days'] ?? 0),

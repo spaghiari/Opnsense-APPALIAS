@@ -1,0 +1,86 @@
+{
+  "appalias": {
+    "general": {
+      "enabled": "1",
+      "listen_address": "127.0.0.1",
+      "listen_port": "53535",
+      "upstream_address": "192.0.2.53",
+      "upstream_port": "853",
+      "upstream_protocol": {
+        "dns": {
+          "value": "Plain DNS (UDP/TCP)",
+          "selected": 0
+        },
+        "dot": {
+          "value": "DNS over TLS (RFC 7858)",
+          "selected": 1
+        }
+      },
+      "upstream_tls_name": "dns.quad9.net",
+      "upstream_fallback": {
+        "192.0.2.54#dns.quad9.net": {
+          "value": "192.0.2.54#dns.quad9.net",
+          "selected": 1
+        }
+      },
+      "unbound_autoforward": "1",
+      "discovery_enabled": "0",
+      "discovery_retention_days": "7",
+      "discovery_max_names": "5000",
+      "discovery_window": "5",
+      "follow_cname": "1",
+      "ttl_min": "300",
+      "ttl_margin": "3600",
+      "max_entries_per_app": "20000",
+      "exclude_networks": {
+        "10.0.0.0/8": {
+          "value": "10.0.0.0/8",
+          "selected": 1
+        },
+        "172.16.0.0/12": {
+          "value": "172.16.0.0/12",
+          "selected": 1
+        },
+        "192.168.0.0/16": {
+          "value": "192.168.0.0/16",
+          "selected": 1
+        },
+        "fc00::/7": {
+          "value": "fc00::/7",
+          "selected": 1
+        }
+      },
+      "shared_platforms_extra": {},
+      "catalog_online_update": "1",
+      "catalog_update_schedule": {
+        "manual": {
+          "value": "Manual",
+          "selected": 0
+        },
+        "daily": {
+          "value": "Daily",
+          "selected": 1
+        }
+      },
+      "alias_prefix": "APP_",
+      "loglevel": {
+        "error": {
+          "value": "Errors",
+          "selected": 0
+        },
+        "warning": {
+          "value": "Warnings",
+          "selected": 0
+        },
+        "info": {
+          "value": "Informational",
+          "selected": 1
+        },
+        "debug": {
+          "value": "Debug",
+          "selected": 0
+        }
+      }
+    }
+  }
+}

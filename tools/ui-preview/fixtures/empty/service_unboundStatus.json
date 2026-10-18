@@ -1,0 +1,14 @@
+{
+  "active": true,
+  "count": 0,
+  "forward_addr": "127.0.0.1@53535",
+  "root_forward": true,
+  "upstream_protocol": "dot",
+  "upstream_tls_name": "dns.quad9.net",
+  "errors": [],
+  "conflicts": [],
+  "zones": [],
+  "changed": false,
+  "restarted": false,
+  "unbound_enabled": true
+}

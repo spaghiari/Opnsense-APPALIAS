@@ -36,15 +36,18 @@ use OPNsense\Core\Config;
 /**
  * Catalogue v2fly embarqué (catalog/v2fly.lst, interrogé par catalog.py).
  *
- * GET  info, popular, search?q=, preview?ref=, diff[?uuid=] ;
+ * GET  info, popular, search?q=, preview?ref=, diff[?uuid=], followLog ;
  * POST import {ref, mode: new|merge, app_uuid?, name?, rules[]},
  *      applyDiff {app_uuid, add[], remove[]},
  *      update (téléchargement en ligne, si l'option est activée), reset
- *      (retour à l'instantané embarqué).
+ *      (retour à l'instantané embarqué), undoFollow {entry_id}.
  *
  * Les écritures vérifient côté serveur que les règles viennent bien de la
  * résolution de la référence, puis enregistrent l'application dans
- * config.xml. Rien n'est appliqué : il faut toujours cliquer sur « Appliquer ».
+ * config.xml. Import, fusion et diff manuel n'appliquent rien : il faut
+ * cliquer sur « Appliquer ». Seul le suivi automatique (catalog_follow=1,
+ * catalog_follow.php, après une mise à jour du catalogue) et son annulation
+ * (undoFollow) appliquent eux-mêmes leurs changements.
  */
 class CatalogController extends ApiControllerBase
 {
@@ -58,6 +61,7 @@ class CatalogController extends ApiControllerBase
     const UUID_PATTERN = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/';
     const NAME_PATTERN = '/^[A-Za-z0-9_]{1,31}$/';
     const MAX_RULE_LENGTH = 1100;
+    const ENTRY_PATTERN = '/^[0-9a-f]{16}$/';
 
     /**
      * Appel configd « appalias <action> [param] » ; JSON décodé ou ['error' => …].
@@ -141,6 +145,33 @@ class CatalogController extends ApiControllerBase
     private static function minus($a, $b)
     {
         return array_keys(array_diff_key(array_fill_keys($a, true), array_fill_keys($b, true)));
+    }
+
+    /**
+     * Éléments de $a absents de $b, comparés sous leur forme canonique
+     * (AppAlias::ruleKey : « example.com » équivaut à « domain:example.com »).
+     */
+    private static function minusRules($a, $b)
+    {
+        $known = [];
+        foreach ($b as $rule) {
+            $known[AppAlias::ruleKey($rule)] = true;
+        }
+        $out = [];
+        foreach ($a as $rule) {
+            if (!isset($known[AppAlias::ruleKey($rule)])) {
+                $out[] = $rule;
+            }
+        }
+        return $out;
+    }
+
+    /** Règles sans virgule : une virgule casserait la liste catalog_declined. */
+    private static function withoutComma($rules)
+    {
+        return array_values(array_filter($rules, function ($rule) {
+            return strpos($rule, ',') === false;
+        }));
     }
 
     /**
@@ -229,7 +260,8 @@ class CatalogController extends ApiControllerBase
     /**
      * Téléchargement du dernier catalogue v2fly (catalog_update.py), seulement
      * si l'option est activée. Le catalogue est remplacé après contrôle ; les
-     * applications ne changent pas (les nouveautés passent par le diff).
+     * applications suivies (catalog_follow=1) sont ensuite mises à jour et
+     * appliquées (clé « follow » du résultat), les autres passent par le diff.
      */
     public function updateAction()
     {
@@ -362,13 +394,29 @@ class CatalogController extends ApiControllerBase
                 if ($node === null) {
                     return self::failed(gettext('Application not found.'));
                 }
-                $node->setNodes([
+                $current = AppAlias::splitList($node->domains);
+                $domains = self::union($current, $rules);
+                // une règle déjà présente à la main dans domains n'entre pas dans catalog_rules
+                $tracked = self::minusRules($rules, $current);
+                // catalog_follow : seulement si l'application n'était pas déjà liée au catalogue
+                // (jamais d'écrasement d'une désactivation explicite)
+                $hadRefs = count(AppAlias::splitList($node->catalog_refs)) > 0;
+                $values = [
                     'origin' => 'v2fly',
-                    'domains' => implode(',', self::union(AppAlias::splitList($node->domains), $rules)),
+                    'domains' => implode(',', $domains),
                     'catalog_refs' => implode(',', self::union(AppAlias::splitList($node->catalog_refs), [$ref])),
-                    'catalog_rules' => implode(',', self::union(AppAlias::splitList($node->catalog_rules), $rules)),
+                    'catalog_rules' => implode(',', self::union(AppAlias::splitList($node->catalog_rules), $tracked)),
                     'catalog_revision' => $revision,
-                ]);
+                    // règles de la liste non retenues : jamais ajoutées par le suivi automatique
+                    'catalog_declined' => implode(',', self::withoutComma(self::minusRules(
+                        self::union(AppAlias::splitList($node->catalog_declined), $resolved['rules']),
+                        $domains
+                    ))),
+                ];
+                if (!$hadRefs) {
+                    $values['catalog_follow'] = '1';
+                }
+                $node->setNodes($values);
             } else {
                 $node = $mdl->apps->app->Add();
                 $node->setNodes([
@@ -381,6 +429,10 @@ class CatalogController extends ApiControllerBase
                     'catalog_refs' => $ref,
                     'catalog_rules' => implode(',', $rules),
                     'catalog_revision' => $revision,
+                    'catalog_follow' => '1',
+                    'catalog_declined' => implode(',', self::withoutComma(
+                        self::minusRules($resolved['rules'], $rules)
+                    )),
                 ]);
                 $uuid = (string)$node->getAttribute('uuid');
             }
@@ -429,6 +481,7 @@ class CatalogController extends ApiControllerBase
                 'name' => (string)$app->name,
                 'refs' => $refs,
                 'revision' => (string)$app->catalog_revision,
+                'follow' => (string)$app->catalog_follow === '1',
             ];
             $resolved = $this->resolveRefs($refs);
             if (isset($resolved['error'])) {
@@ -503,12 +556,16 @@ class CatalogController extends ApiControllerBase
             if (count(self::minus($remove, $imported)) > 0) {
                 return self::failed(gettext('Only rules imported from the catalog can be removed here.'));
             }
-            $domains = self::minus(self::union(AppAlias::splitList($node->domains), $add), $remove);
-            $imported = self::minus(self::union($imported, $add), $remove);
+            $current = AppAlias::splitList($node->domains);
+            $domains = self::minus(self::union($current, $add), $remove);
+            // une règle déjà présente à la main dans domains n'entre pas dans catalog_rules
+            $tracked = self::minusRules($add, $current);
+            $imported = self::minus(self::union($imported, $tracked), $remove);
             $node->setNodes([
                 'domains' => implode(',', $domains),
                 'catalog_rules' => implode(',', $imported),
                 'catalog_revision' => (string)($resolved['revision'] ?? ''),
+                'catalog_declined' => implode(',', self::minus(AppAlias::splitList($node->catalog_declined), $add)),
             ]);
             $validations = self::validateAndSave($mdl);
         } finally {
@@ -527,5 +584,53 @@ class CatalogController extends ApiControllerBase
             );
         }
         return $result;
+    }
+
+    /**
+     * Journal du suivi automatique (20 dernières entrées, la plus récente en
+     * premier) ; « app_exists » indique si l'application existe encore.
+     */
+    public function followLogAction()
+    {
+        $data = $this->catalogRun('catalog_follow_log');
+        if (!isset($data['entries']) || !is_array($data['entries'])) {
+            return [
+                'entries' => [],
+                'error' => (string)($data['error'] ?? gettext('Unreadable answer from catalog_follow.py.')),
+            ];
+        }
+        $apps = [];
+        foreach ((new AppAlias())->apps->app->iterateItems() as $uuid => $app) {
+            $apps[(string)$uuid] = (string)$app->name;
+        }
+        foreach ($data['entries'] as $i => $entry) {
+            $uuid = is_array($entry) ? (string)($entry['app_uuid'] ?? '') : '';
+            $data['entries'][$i]['app_exists'] = isset($apps[$uuid]);
+            if (isset($apps[$uuid])) {
+                $data['entries'][$i]['app'] = $apps[$uuid];
+            }
+        }
+        return $data;
+    }
+
+    /**
+     * Annulation d'une entrée du journal (catalog_follow.php undo) : retire
+     * ce qui a été ajouté, remet ce qui a été retiré, puis applique. Refusée
+     * si l'application a été supprimée ou si l'entrée est déjà annulée.
+     */
+    public function undoFollowAction()
+    {
+        if (!$this->request->isPost()) {
+            return self::failed(gettext('POST required.'));
+        }
+        $entry = (string)$this->request->getPost('entry_id');
+        if (preg_match(self::ENTRY_PATTERN, $entry) !== 1) {
+            return self::failed(gettext('Invalid journal entry.'));
+        }
+        $data = $this->catalogRun('catalog_follow_undo', $entry);
+        if (($data['result'] ?? '') !== 'undone') {
+            return self::failed((string)($data['error'] ?? gettext('Unreadable answer from catalog_follow.php.')));
+        }
+        return $data;
     }
 }

@@ -1,6 +1,6 @@
 <model>
     <mount>//OPNsense/appalias</mount>
-    <version>0.4.0</version>
+    <version>0.5.0</version>
     <description>AppAlias: one External pf alias per application, filled by the appaliasd DNS relay</description>
     <items>
         <general>
@@ -203,6 +203,13 @@
                 <catalog_revision type="TextField">
                     <Required>N</Required>
                 </catalog_revision>
+                <catalog_follow type="BooleanField">
+                    <Default>0</Default>
+                    <Required>Y</Required>
+                </catalog_follow>
+                <catalog_declined type="CSVListField">
+                    <Required>N</Required>
+                </catalog_declined>
             </app>
         </apps>
     </items>

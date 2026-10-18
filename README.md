@@ -147,11 +147,40 @@ nouvelle application ou par fusion dans une application existante :
 - l'import enregistre l'application, sans rien appliquer : il faut toujours
   cliquer sur **Apply**.
 
-Après une mise à jour du catalogue (téléchargement quotidien ou nouvel
-instantané embarqué), la grille indique pour
-chaque application importée le nombre de « catalog updates » : règles
-ajoutées ou retirées par le catalogue, à cocher dans une modale avant
-enregistrement. Les règles ajoutées à la main sont conservées.
+### Suivi automatique du catalogue
+
+Une application créée ou fusionnée depuis le catalogue **suit le catalogue**
+(case *Follow catalog automatically* de l'application, pastille `auto` dans la
+grille). Après chaque mise à jour réussie du catalogue (téléchargement
+quotidien, **Update catalog now**, mise à jour du plugin avec un instantané
+embarqué plus récent) :
+
+- les nouvelles règles de ses listes sont ajoutées, les règles retirées du
+  catalogue sont retirées, puis tout est appliqué sans clic (export,
+  synchronisation des alias, zones d'Unbound, rechargement du relais), en
+  passant par le modèle et ses validations ;
+- les règles ajoutées à la main ne sont jamais touchées ; les règles
+  décochées à l'import, les noms de plateformes partagées, les règles
+  `keyword:` / `regexp:`, les règles ignorées par la découverte et les règles
+  `@ads` exclues par la référence (`netflix@-ads`) ne sont jamais ajoutées ;
+- au-delà de 1000 règles pour une application, rien n'est appliqué pour elle
+  et l'événement est journalisé ; une application en erreur n'est pas
+  enregistrée, les autres le sont ;
+- chaque changement est noté dans `/var/db/appalias/catalog_follow.json`
+  (200 derniers) et dans le journal système (niveau info). La section
+  *Automatic updates* de l'onglet *Catalog* liste les 20 derniers, avec le
+  détail des règles et un bouton **Undo** : les règles ajoutées sont retirées
+  (et ne reviendront pas), les règles retirées reviennent comme règles
+  ajoutées à la main, puis c'est appliqué.
+
+Une application qui ne suit pas le catalogue (case décochée, ou application
+créée à la main) garde le fonctionnement manuel : la grille indique le nombre
+de « catalog updates », à cocher dans une modale avant enregistrement, puis
+**Apply**.
+
+À la mise à jour vers 0.6, les applications existantes qui ont des listes du
+catalogue suivent le catalogue ; les règles de leurs listes qui n'avaient pas
+été importées jusque-là restent écartées.
 
 **Règles de découverte** : `keyword:` et `regexp:` sont conservées dans la
 configuration mais jamais appliquées par le relais (une seule ligne de
@@ -168,9 +197,10 @@ v2fly/domain-list-community. Le bouton **Update catalog now** de l'onglet
 l'instantané du paquet. L'encadré de l'onglet indique la provenance
 (« Embedded snapshot » ou « Downloaded », date et commit).
 
-- **Rien ne s'applique tout seul** : seul le catalogue change. Les nouvelles
-  règles apparaissent dans les « catalog updates » de chaque application, à
-  cocher puis **Apply**.
+- **Ce qui s'applique tout seul** : seulement les applications qui suivent le
+  catalogue (voir *Suivi automatique du catalogue*). Pour les autres, les
+  nouvelles règles apparaissent dans les « catalog updates », à cocher puis
+  **Apply**.
 - **Sécurité** : HTTPS seulement, vers `api.github.com` et
   `codeload.github.com` (aucune autre destination, aucune redirection vers un
   autre hôte), certificat vérifié, archive plafonnée à 20 Mo. L'extraction et
@@ -197,6 +227,14 @@ un groupe de noms du même site, jamais sur une plateforme partagée). **Accept*
 enregistre la règle dans l'application ; rien ne change avant **Apply**. Le
 mode *Learn 2 min* met en avant les noms vus pendant que vous utilisez une
 application.
+
+Les adresses des noms déjà couverts, y compris celles des noms de leurs
+chaînes CNAME, sont ajoutées automatiquement par le relais : la découverte ne
+sert qu'à trouver des noms manquants. Une proposition dont la chaîne CNAME
+passe par un nom couvert par la même application est donc classée
+« already covered » : elle apparaît dans une section repliée, sans **Accept**
+ni **Ignore**, et n'est comptée ni dans les propositions ni dans la pastille
+de la grille (avec *Follow CNAME*, réglage par défaut).
 
 Ce que voit le relais : avec le transfert automatique d'Unbound, seulement
 les domaines des applications et leurs chaînes CNAME (sous-domaines,
@@ -258,10 +296,11 @@ immédiat et la bascule aussi.
   prochaine résolution.
 - **Écoute** : laisser le relais sur `127.0.0.1` (défaut). Ouvert au LAN, un
   client pourrait remplir les alias jusqu'au plafond par application.
-- **État actuel (0.5)** : catalogue v2fly (rafraîchi chaque jour, option),
-  DNS over TLS vers l'amont, découverte (option), état du relais avec sa
-  version en tête de page ; les sources ASN ne sont pas encore utilisées et
-  les règles `keyword:` / `regexp:` restent des règles de découverte.
+- **État actuel (0.6)** : catalogue v2fly (rafraîchi chaque jour, option)
+  suivi automatiquement par les applications importées, DNS over TLS vers
+  l'amont, découverte (option), état du relais avec sa version en tête de
+  page ; les sources ASN ne sont pas encore utilisées et les règles
+  `keyword:` / `regexp:` restent des règles de découverte.
 
 ## Contribuer, sécurité, licence
 

@@ -1,0 +1,20 @@
+{
+  "origin": "online",
+  "embedded": {
+    "commit": "b81d0e5c9a2f47630d1e8a5b7c294f6013ae5d92",
+    "date": "2026-09-02T00:00:00Z"
+  },
+  "source": "https://github.com/v2fly/domain-list-community",
+  "commit": "3f9a1c07d2e84b5a6c10f7e9b2d4a8c5e1f03b67",
+  "date": "2026-10-17T03:12:44Z",
+  "license": "MIT",
+  "license_file": true,
+  "lists": 1416,
+  "lst_bytes": 3481220,
+  "lst_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "integrity": true,
+  "max_import": 1000,
+  "warn_import": 300,
+  "online_update": true,
+  "schedule": "daily"
+}
