@@ -100,34 +100,6 @@
                 <Default>0</Default>
                 <Required>Y</Required>
             </unbound_autoforward>
-            <discovery_enabled type="BooleanField">
-                <Default>0</Default>
-                <Required>Y</Required>
-            </discovery_enabled>
-            <discovery_retention_days type="IntegerField">
-                <Default>7</Default>
-                <Required>Y</Required>
-                <MinimumValue>1</MinimumValue>
-                <MaximumValue>90</MaximumValue>
-                <ValidationMessage>Value between 1 and 90 days.</ValidationMessage>
-            </discovery_retention_days>
-            <discovery_max_names type="IntegerField">
-                <Default>5000</Default>
-                <Required>Y</Required>
-                <MinimumValue>500</MinimumValue>
-                <MaximumValue>50000</MaximumValue>
-                <ValidationMessage>Value between 500 and 50000.</ValidationMessage>
-            </discovery_max_names>
-            <discovery_window type="IntegerField">
-                <Default>5</Default>
-                <Required>Y</Required>
-                <MinimumValue>1</MinimumValue>
-                <MaximumValue>30</MaximumValue>
-                <ValidationMessage>Value between 1 and 30 seconds.</ValidationMessage>
-            </discovery_window>
-            <discovery_ignored type="CSVListField">
-                <Required>N</Required>
-            </discovery_ignored>
             <proactive_enabled type="BooleanField">
                 <Default>1</Default>
                 <Required>Y</Required>

@@ -110,7 +110,7 @@ class CatalogCliTests(unittest.TestCase):
         self.assertFalse(rules["domain:app.example"]["shared"])
         self.assertEqual(rules["domain:ads.app.example"]["attrs"], ["ads"])
         self.assertEqual(rules["domain:part.example"]["attrs"], ["cn"])
-        self.assertTrue(rules["keyword:app"]["discovery"])
+        self.assertTrue(rules["keyword:app"]["unapplied"])
         self.assertEqual(rules["regexp:^a{1,2}\\.example$"]["refused"], "comma")
         self.assertEqual(out["count"], 8)
         out = self.run_cli("preview", "cdnapp@-ads@-cn")

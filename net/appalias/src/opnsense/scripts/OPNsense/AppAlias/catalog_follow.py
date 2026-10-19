@@ -25,7 +25,7 @@
 
 """Suivi automatique du catalogue : calculs et journal (lib/follow.py).
 
-  catalog_follow.py plan        stdin {apps, ignored, shared_extra, cap} :
+  catalog_follow.py plan        stdin {apps, shared_extra, cap} :
                                 écarts de chaque application suivie
   catalog_follow.py undo-plan   stdin {entry_id, apps: {uuid: état}} :
                                 inverse d'une entrée du journal
@@ -69,7 +69,6 @@ def cmd_plan(data, store):
     if not isinstance(cap, int) or isinstance(cap, bool) or cap < 1:
         raise follow.FollowError("invalid cap")
     platforms = shared.load(extra=follow.rule_list(data.get("shared_extra")))
-    ignored = follow.Ignored(follow.rule_list(data.get("ignored")))
     try:
         cat = store.catalog()
         revision = store.revision()
@@ -105,7 +104,7 @@ def cmd_plan(data, store):
             follow.rule_list(app.get("catalog_rules")),
             follow.rule_list(app.get("domains")),
             follow.rule_list(app.get("declined")),
-            platforms, ignored, cap)
+            platforms, cap=cap)
     return out
 
 

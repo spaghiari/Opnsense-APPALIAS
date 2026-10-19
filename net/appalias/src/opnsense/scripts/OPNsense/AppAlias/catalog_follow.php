@@ -239,7 +239,6 @@ function appalias_run()
         }
         $plan = appalias_follow_py('plan', [
             'apps' => array_values($apps),
-            'ignored' => AppAlias::splitList($mdl->general->discovery_ignored),
             'shared_extra' => AppAlias::splitList($mdl->general->shared_platforms_extra),
             'cap' => APPALIAS_MAX_APP_RULES,
         ]);

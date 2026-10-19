@@ -27,7 +27,7 @@
 Règles :
 - « domain:x » ou « x » seul : x et tous ses sous-domaines ;
 - « full:x » : x exactement ;
-- « keyword:… » et « regexp:… » : règles de découverte, conservées dans la
+- « keyword:… » et « regexp:… » : règles non appliquées, conservées dans la
   configuration mais jamais appliquées par le relais (une seule ligne de
   journal, en debug, avec leur nombre).
 
@@ -38,13 +38,12 @@ ligne de journal pour l'ensemble des refus).
 
 import logging
 
-from . import shared
+from . import shared, v2fly
 from .dnswire import normalize_name
 
 KIND_DOMAIN = "domain"
 KIND_FULL = "full"
-IGNORED_KINDS = ("keyword", "regexp")
-KNOWN_KINDS = (KIND_DOMAIN, KIND_FULL) + IGNORED_KINDS
+KNOWN_KINDS = (KIND_DOMAIN, KIND_FULL) + v2fly.UNAPPLIED_KINDS
 
 log = logging.getLogger("appalias")
 
@@ -85,7 +84,7 @@ class Matcher:
         self.platforms = shared.load() if platforms is None else frozenset(platforms)
         self._full = {}
         self._domain = {}
-        self.discovery = []
+        self.unapplied = []
         self.refused = []
         self.ignored = []
         for table, rules in rules_by_table.items():
@@ -101,8 +100,8 @@ class Matcher:
                         self.refused.append((table, rule))
                     else:
                         self._domain.setdefault(value, set()).add(table)
-                elif kind in IGNORED_KINDS:
-                    self.discovery.append((table, rule))
+                elif kind in v2fly.UNAPPLIED_KINDS:
+                    self.unapplied.append((table, rule))
                     self.ignored.append((table, rule))
                 else:
                     self.ignored.append((table, rule))
@@ -115,10 +114,10 @@ class Matcher:
                 len(self.refused),
                 ", ".join("%s (%s)" % (r, t) for t, r in self.refused[:5])
                 + (", …" if len(self.refused) > 5 else ""))
-        if self.discovery:
+        if self.unapplied:
             self.log.debug(
-                "%d règle(s) de découverte (keyword:, regexp:) conservée(s), "
-                "non appliquée(s) par le relais", len(self.discovery))
+                "%d règle(s) non appliquée(s) (keyword:, regexp:) conservée(s) "
+                "par le relais", len(self.unapplied))
 
     def match_name(self, name):
         """Tables concernées par un nom."""

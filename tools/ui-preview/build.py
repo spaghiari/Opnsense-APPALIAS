@@ -70,7 +70,7 @@ COPIED = ("mock.js", "opnsense-lite.css")
 MOBILE = """<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>os-appalias - narrow preview</title></head>
 <body style="margin:0;background:#ddd">
-<!-- ?w=420&state=empty&tab=discovery&log=1 : largeur, état, onglet ; log=1 liste les éléments qui dépassent -->
+<!-- ?w=420&state=empty&tab=catalog&log=1 : largeur, état, onglet ; log=1 liste les éléments qui dépassent -->
 <iframe id="f" style="border:0;background:#fff;display:block" height="1400"></iframe>
 <pre id="log" style="margin:0;font-size:12px"></pre>
 <script>
@@ -113,8 +113,6 @@ LANG_RE = re.compile(r"\{\{\s*lang\._\(\s*" + STRING + r"\s*\)\s*(?:\|\s*(\w+)\s
 PARTIAL_RE = re.compile(r"\{\{\s*partial\(\s*[\"']([^\"']+)[\"']\s*,\s*\[(.*?)\]\s*\)\s*\}\}", re.S)
 COMMENT_RE = re.compile(r"\{#.*?#\}", re.S)
 ARG_RE = re.compile(r"""['"](\w+)['"]\s*:\s*(?:lang\._\(\s*""" + STRING + r"""\s*\)|'([^']*)'|"([^"]*)"|(\w+))""")
-# URL construite par concaténation dans index.volt (ignoreRule : ignore ou unignore).
-DYNAMIC = ("ignore", "unignore")
 API_RE = re.compile(r"""['"](/api/appalias/[A-Za-z0-9_/]*)""")
 
 
@@ -302,11 +300,8 @@ def volt_endpoints(volt):
     found = {}
     for m in API_RE.finditer(volt):
         key = endpoint_key(m.group(1))
-        if "_" in key:   # « /api/appalias/discovery/ » + variable : voir DYNAMIC
+        if "_" in key:
             found.setdefault(key, m.group(1))
-    for name in DYNAMIC:
-        if "'/api/appalias/discovery/' + " in volt:
-            found.setdefault("discovery_" + name, "/api/appalias/discovery/" + name)
     return found
 
 

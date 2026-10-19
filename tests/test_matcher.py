@@ -50,7 +50,7 @@ class MatcherTests(unittest.TestCase):
         self.assertEqual(cm.records[0].levelno, logging.DEBUG)
         self.assertTrue(cm.records[0].getMessage().startswith("3 "))
         self.assertEqual(m.match_name("video.example.com"), set())
-        self.assertEqual(len(m.discovery), 3)
+        self.assertEqual(len(m.unapplied), 3)
         self.assertEqual(len(m.ignored), 3)
         self.assertFalse(m)
 

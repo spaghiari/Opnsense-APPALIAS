@@ -16,3 +16,7 @@ fi
 # (migration du modèle déjà faite à ce stade). Sans changement, rien n'est
 # enregistré ni appliqué. En tâche de fond, jamais bloquant.
 /usr/sbin/daemon -f /usr/local/opnsense/scripts/OPNsense/AppAlias/catalog_follow.php run > /dev/null 2>&1 || true
+
+# Données de l'ancienne fonction Discovery (retirée). Supprimées APRÈS le
+# redémarrage du démon : l'ancien code réécrivait discovery.json à son arrêt.
+rm -f /var/db/appalias/discovery.json /var/db/appalias/discovery.ctl.json /var/db/appalias/.discovery.*.tmp

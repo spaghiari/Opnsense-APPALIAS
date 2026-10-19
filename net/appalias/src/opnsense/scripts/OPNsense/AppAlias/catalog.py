@@ -387,7 +387,7 @@ def cmd_preview(store, ref):
             "kind": kind,
             "value": value,
             "attrs": sorted(attrs),
-            "discovery": kind in v2fly.DISCOVERY_KINDS,
+            "unapplied": kind in v2fly.UNAPPLIED_KINDS,
             # drapeau affiché : « shared » seulement ; la raison « tld » passe par
             # « refused ». La sélection (PHP, suivi) exclut tout résultat non nul.
             "shared": shared.excluded(kind, value, platforms) == "shared",

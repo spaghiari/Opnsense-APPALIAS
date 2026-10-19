@@ -53,20 +53,14 @@ class StatusVersionTests(unittest.TestCase):
 
 
 class ConfigTests(unittest.TestCase):
-    def test_discovery_defaults_and_bounds(self):
-        cfg = cfgmod.from_dict({"general": {}})
-        self.assertFalse(cfg.discovery_enabled)
-        self.assertEqual((cfg.discovery_retention_days, cfg.discovery_max_names, cfg.discovery_window),
-                         (7, 5000, 5))
+    def test_legacy_discovery_keys_tolerated(self):
+        # Les clés de l'ancienne fonction Discovery restent tolérées en lecture
+        # (config.json d'un export plus ancien) : ignorées, sans erreur.
         cfg = cfgmod.from_dict({"general": {
-            "discovery_enabled": "1", "discovery_retention_days": 500, "discovery_max_names": 1,
-            "discovery_window": None,
-            "discovery_ignored": ["full:A.Example.com.", "domain:cdn.example", "keyword:x", "full:bad name",
-                                  "domain:cdn.example"]}})
-        self.assertTrue(cfg.discovery_enabled)
-        self.assertEqual((cfg.discovery_retention_days, cfg.discovery_max_names, cfg.discovery_window),
-                         (90, 500, 5))
-        self.assertEqual(cfg.discovery_ignored, [("full", "a.example.com"), ("domain", "cdn.example")])
+            "discovery_enabled": True, "discovery_retention_days": 7, "discovery_max_names": 5000,
+            "discovery_window": 5, "discovery_ignored": ["full:a.example", "domain:b.example"]}})
+        self.assertFalse(hasattr(cfg, "discovery_enabled"))
+        self.assertFalse(hasattr(cfg, "discovery_ignored"))
 
 
 class OnlineOptionTests(unittest.TestCase):

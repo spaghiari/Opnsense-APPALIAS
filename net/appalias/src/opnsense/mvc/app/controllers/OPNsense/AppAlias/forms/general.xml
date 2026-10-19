@@ -56,33 +56,6 @@
         <help>Unbound sends only the domains of the enabled applications to the relay, one forward zone per domain (file /usr/local/etc/unbound.opnsense.d/appalias.conf). Other queries keep their usual path (DNS over TLS, Query Forwarding). Names already configured in Unbound (Query Forwarding, DNS over TLS, domain overrides) and local names are skipped. Applying restarts Unbound when the list of forwarded domains changes. Each zone uses forward-first: while the relay is down, Unbound falls back to direct recursion to the authoritative servers for these domains (plain DNS on UDP/TCP port 53), bypassing DNS over TLS and the "." Query Forwarding; their addresses are not added to the aliases. If outgoing port 53 is blocked, these domains fail (SERVFAIL) until the relay is back. After adding a Query Forwarding entry for a domain also used by AppAlias, press Apply in AppAlias. Leave unchecked to set up the forwarding by hand.</help>
     </field>
     <field>
-        <id>appalias.general.discovery_enabled</id>
-        <label>Discovery</label>
-        <type>checkbox</type>
-        <help>Off by default. The relay counts the DNS names it sees (names only, never which client asked) to suggest rules in the Discovery tab. Nothing is ever added to an application without your validation and Apply. Turning it off erases the collected data.</help>
-    </field>
-    <field>
-        <id>appalias.general.discovery_retention_days</id>
-        <label>Discovery retention (days)</label>
-        <type>text</type>
-        <advanced>true</advanced>
-        <help>Names not seen for this long are forgotten (1 to 90 days, default 7).</help>
-    </field>
-    <field>
-        <id>appalias.general.discovery_max_names</id>
-        <label>Discovery max. names</label>
-        <type>text</type>
-        <advanced>true</advanced>
-        <help>Beyond this, the 10 % weakest names (fewest views, oldest) are forgotten (500 to 50000, default 5000).</help>
-    </field>
-    <field>
-        <id>appalias.general.discovery_window</id>
-        <label>Discovery window (s)</label>
-        <type>text</type>
-        <advanced>true</advanced>
-        <help>Two names seen within this many seconds of each other are counted as seen together (1 to 30 s, default 5).</help>
-    </field>
-    <field>
         <id>appalias.general.follow_cname</id>
         <label>Follow CNAMEs</label>
         <type>checkbox</type>

@@ -204,8 +204,8 @@ installation (`tools/install-copy.sh`) :
    diff ajoute ou retire les règles cochées.
 8. `configctl appalias export` : `config.json` contient `catalog_refs` et
    `shared_platforms_extra` ; le relais journalise une seule ligne pour les
-   règles refusées et, en debug, une seule ligne pour les règles de
-   découverte.
+   règles refusées et, en debug, une seule ligne pour les règles
+   `keyword:` / `regexp:` (conservées, jamais appliquées).
 9. Journal dédié : rien à déclencher à la main. plugins.mk ajoute à
    +POST_INSTALL un `configctl template reload` par dossier de template (dont
    `OPNsense/Syslog`), et `rc.configure_plugins POST_INSTALL` appelle
@@ -276,15 +276,6 @@ installation (`tools/install-copy.sh`) :
       plus récents sans redémarrage, avertissement « restart needed » ;
     - note « forwarded domains bypass DNS over TLS » en bleu (info) relais
       démarré, en rouge relais arrêté ;
-    - découverte : carte d'activation tant que *Discovery* est décoché ;
-      cochée puis Apply, `discovery.json` apparaît sous `/var/db/appalias/`
-      après *Refresh* ; *Learn 2 min* (compte à rebours, noms « new ») ;
-      *Accept* enregistre `full:`/`domain:` dans l'application (refus de
-      `domain:` sur une plateforme partagée), *Ignore* / *Stop ignoring*
-      modifient `general.discovery_ignored` ; *Erase discovery data* et
-      décocher *Discovery* puis Apply suppriment le fichier ; pastille
-      « N proposals » dans la grille ;
-    - `configctl appalias discovery_ctl 'learn:700'` et `'dump;id'` refusés ;
     - catalogue en ligne : `crontab -l` contient la tâche
       `configctl -d appalias catalog_update` (minute et heure dérivées du nom
       d'hôte) tant que l'option est cochée en *daily*, plus rien une fois
@@ -315,8 +306,7 @@ installation (`tools/install-copy.sh`) :
       et le relais rechargé (`onereload`), Unbound redémarré seulement si les
       zones changent. Les règles ajoutées à la main restent ; une règle
       décochée à l'import (dans `catalog_declined`), une règle `full:` sur une
-      plateforme partagée, une `keyword:` ou une règle ignorée par la
-      découverte ne sont pas ajoutées. Second appel : `result: unchanged` ;
+      plateforme partagée, une `keyword:` ne sont pas ajoutées. Second appel : `result: unchanged` ;
     - retrait : ajouter `domain:obsolete.example` à `domains` et à
       `catalog_rules`, puis `configctl appalias catalog_follow` : retirée ;
       ajoutée seulement à `domains` (règle manuelle) : gardée ;
@@ -336,13 +326,23 @@ installation (`tools/install-copy.sh`) :
       `configctl appalias catalog_follow_undo <id>` répond « was deleted » ;
       identifiant `x;id` refusé ;
     - journal borné : au-delà de 200 entrées, les plus anciennes sortent ;
-    - découverte : une proposition dont la chaîne CNAME passe par un nom de
-      la même application est dans la section repliée « Already covered »,
-      sans *Accept* ni *Ignore*, et n'est comptée ni dans « N proposals » ni
-      dans la pastille de la grille ; *Follow CNAMEs* décoché : elle redevient
-      une proposition ordinaire ;
-    - mise en page : onglets *Discovery* et *Catalog* à 1280 px puis sous
-      768 px (lignes de proposition empilées, galerie sur une colonne).
+    - mise en page : onglet *Catalog* à 1280 px puis sous 768 px (galerie
+      sur une colonne).
+13. Version 0.8 (retrait de Discovery, modèle toujours 0.6.0) :
+    - l'onglet *Discovery* a disparu, ainsi que la section *Discovery* de
+      *Settings* ;
+    - `/api/appalias/discovery/status` répond 404 ;
+    - `configctl appalias discovery_list` : action inconnue (idem
+      `discovery_ctl`) ;
+    - `/var/db/appalias/discovery.json` est absent après la mise à jour (et
+      `discovery.ctl.json`) ;
+    - `grep discovery /conf/config.xml` avant puis après un Apply : les
+      nœuds `discovery_*` disparaissent au premier enregistrement du modèle ;
+    - suivi : `configctl appalias catalog_follow` répond sans erreur ; une
+      règle qui était « ignorée » par Discovery n'empêche plus son ajout, et
+      *Undo* la place dans `catalog_declined` ;
+    - la résolution proactive est active : `metrics.json` contient les
+      compteurs `proactive` (sent, ok, empty, failed, added).
 
 ## Rotation de clé
 

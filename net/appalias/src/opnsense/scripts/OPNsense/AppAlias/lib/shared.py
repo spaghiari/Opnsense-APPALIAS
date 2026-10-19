@@ -92,11 +92,6 @@ def covers_platform(value, platforms):
     return any(p == value or p.endswith(suffix) for p in platforms)
 
 
-def under_platform(value, platforms):
-    """Vrai si value est un sous-domaine strict d'une plateforme."""
-    return any(value.endswith("." + p) for p in platforms)
-
-
 def refused(kind, value, platforms):
     """Raison du refus d'une règle (« tld » ou « shared »), ou None."""
     if kind != "domain":
@@ -111,13 +106,6 @@ def refused(kind, value, platforms):
     return None
 
 
-def touches(value, platforms):
-    """Vrai si le nom concerne une plateforme partagée (égal, parent ou
-    sous-domaine) : signalé dans l'interface, décoché par défaut."""
-    value = normalize(value)
-    return bool(value) and (covers_platform(value, platforms) or under_platform(value, platforms))
-
-
 def excluded(kind, value, platforms):
     """Raison d'exclusion automatique d'une règle (« tld », « shared ») ou None.
 
@@ -128,8 +116,7 @@ def excluded(kind, value, platforms):
     Seuls les genres « domain » et « full » sont concernés. Un nom sans point
     est un TLD ; un nom égal à une plateforme partagée ou parent de l'une
     d'elles est « shared ». Un sous-domaine strict d'une plateforme
-    (« youtubei.googleapis.com ») est dédié : inclus (None). À la différence
-    de touches(), utilisé par la découverte, qui le signale."""
+    (« youtubei.googleapis.com ») est dédié : inclus (None)."""
     if kind not in ("domain", "full"):
         return None
     value = normalize(value)

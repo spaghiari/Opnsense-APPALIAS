@@ -134,10 +134,10 @@ class ModelTests(unittest.TestCase):
             self.assertIn(name, volt)
 
     def test_plugin_version(self):
-        self.assertRegex(read(os.path.join(PLUGIN, "Makefile")), r"PLUGIN_VERSION=\s+0\.7\.1\n")
-        self.assertIn("\n0.7.1\n", read(os.path.join(PLUGIN, "pkg-descr")))
+        self.assertRegex(read(os.path.join(PLUGIN, "Makefile")), r"PLUGIN_VERSION=\s+0\.8\n")
+        self.assertIn("\n0.8\n", read(os.path.join(PLUGIN, "pkg-descr")))
         from lib.version import VERSION
-        self.assertEqual(VERSION, "0.7.1")     # version écrite par le démon = paquet
+        self.assertEqual(VERSION, "0.8")     # version écrite par le démon = paquet
 
     def test_option_defaults_are_options(self):
         """Le défaut de chaque OptionField fait partie de ses OptionValues."""
@@ -154,32 +154,28 @@ class ModelTests(unittest.TestCase):
         origin = self.root.find("items/apps/app/origin")
         self.assertEqual(origin.findtext("Default"), "manual")
 
-    def test_discovery_and_online_fields(self):
+    def test_online_fields_and_no_discovery(self):
         gen = self.root.find("items/general")
-        expected = {"discovery_enabled": ("BooleanField", "0"), "discovery_retention_days": ("IntegerField", "7"),
-                    "discovery_max_names": ("IntegerField", "5000"), "discovery_window": ("IntegerField", "5"),
-                    "catalog_online_update": ("BooleanField", "1"),
+        expected = {"catalog_online_update": ("BooleanField", "1"),
                     "catalog_update_schedule": ("OptionField", "hourly")}
         for name, (kind, default) in expected.items():
             node = gen.find(name)
             self.assertEqual((node.get("type"), node.findtext("Default")), (kind, default), name)
-        self.assertEqual((gen.find("discovery_retention_days/MinimumValue").text,
-                          gen.find("discovery_retention_days/MaximumValue").text), ("1", "90"))
-        self.assertEqual((gen.find("discovery_max_names/MinimumValue").text,
-                          gen.find("discovery_max_names/MaximumValue").text), ("500", "50000"))
         schedule = [c.tag for c in gen.find("catalog_update_schedule/OptionValues")]
         self.assertEqual(schedule, ["manual", "hourly", "daily"])
         form = read(os.path.join(SRC, "opnsense", "mvc", "app", "controllers", "OPNsense", "AppAlias",
                                  "forms", "general.xml"))
+        export_src = read(os.path.join(SRC, "opnsense", "scripts", "OPNsense", "AppAlias", "export_config.php"))
         help_text = re.search(r"<id>appalias\.general\.catalog_update_schedule</id>.*?<help>(.*?)</help>",
                               form, re.S).group(1)
         help_text.encode("ascii")            # aide en ASCII
         self.assertIn("every hour", help_text)
-        self.assertEqual(gen.find("discovery_ignored").get("type"), "CSVListField")
-        export = read(os.path.join(SRC, "opnsense", "scripts", "OPNsense", "AppAlias", "export_config.php"))
         for name in ("discovery_enabled", "discovery_retention_days", "discovery_max_names",
-                     "discovery_window", "discovery_ignored", "catalog_online_update"):
-            self.assertIn("'%s' =>" % name, export)
+                     "discovery_window", "discovery_ignored"):
+            self.assertIsNone(gen.find(name), name)          # fonction retirée en 0.8
+            self.assertNotIn("<id>appalias.general.%s</id>" % name, form)
+            self.assertNotIn("'%s'" % name, export_src)
+        self.assertIn("'catalog_online_update' =>", export_src)
 
     def test_proactive_fields(self):
         gen = self.root.find("items/general")
@@ -280,15 +276,16 @@ class ModelTests(unittest.TestCase):
         self.assertIn("followAdds(", body)
         self.assertIn("catalog_declined", body)
 
-    def test_volt_follow_and_covered(self):
+    def test_volt_follow_log(self):
         volt = read(os.path.join(MVC, "views", "OPNsense", "AppAlias", "index.volt"))
         for needle in ("'/api/appalias/catalog/followLog'", "'/api/appalias/catalog/undoFollow'",
-                       'id="catalog-follow-log"', 'id="discovery-covered"', "onBeforeRenderDialog",
-                       "row_app.catalog_follow", "lang._('Automatic updates')",
-                       "lang._('Already covered (IPs added through CNAME)')|escape_js"):
+                       'id="catalog-follow-log"', "onBeforeRenderDialog",
+                       "row_app.catalog_follow", "lang._('Automatic updates')"):
             self.assertIn(needle, volt)
+        self.assertNotIn('id="discovery-covered"', volt)
+        self.assertNotIn("Already covered", volt)
         style = volt[volt.index("<style>"):volt.index("</style>")]
-        self.assertGreater(len(set(re.findall(r"\.(appalias-[a-z0-9-]+)", style))), 20)
+        self.assertGreater(len(set(re.findall(r"\.(appalias-[a-z0-9-]+)", style))), 15)
         # chaque sélecteur CSS porte une classe appalias- : rien de Bootstrap n'est redéfini globalement
         for line in style.splitlines():
             line = line.strip()
@@ -307,15 +304,20 @@ class ModelTests(unittest.TestCase):
                       "update --if-enabled", post)
         self.assertIn("/usr/sbin/daemon -f /usr/local/opnsense/scripts/OPNsense/AppAlias/catalog_follow.php run", post)
         rc = read(os.path.join(SRC, "etc", "rc.d", "appaliasd"))
-        self.assertIn('extra_commands="reload ctl"', rc)
-        self.assertIn("appaliasd_signal USR1", rc)
+        self.assertIn('extra_commands="reload"', rc)
+        self.assertNotIn("USR1", rc)
+        # données de l'ancienne fonction Discovery : supprimées APRÈS le redémarrage du démon
+        rm_line = "rm -f /var/db/appalias/discovery.json"
+        self.assertIn(rm_line, post)
+        self.assertGreater(post.index(rm_line), post.index("onerestart"))
         self.assertFalse(os.path.exists(os.path.join(ROOT, ".github", "workflows", "v2fly-refresh.yml")))
 
-    def test_volt_relay_badge_and_discovery(self):
+    def test_volt_relay_badge_and_no_discovery(self):
         volt = read(os.path.join(MVC, "views", "OPNsense", "AppAlias", "index.volt"))
         self.assertIn('<div id="unbound-root-warning" class="alert alert-info"', volt)
         self.assertIn("relayRunning === false ? 'alert-danger' : 'alert-info'", volt)
-        self.assertIn('href="#discovery"', volt)
+        self.assertNotIn('href="#discovery"', volt)
+        self.assertNotIn("/api/appalias/discovery/", volt)
         self.assertIn("'/api/appalias/catalog/update'", volt)
         self.assertIn("'/api/appalias/catalog/reset'", volt)
         script = volt[volt.index("<script>"):volt.index("</script>")]
@@ -336,9 +338,8 @@ class ActionTests(unittest.TestCase):
                              "/usr/local/opnsense/scripts/OPNsense/AppAlias/catalog.py " + sub)
             self.assertEqual(cp[section]["parameters"], "" if sub in ("info", "popular") else "%s")
         base = "/usr/local/opnsense/scripts/OPNsense/AppAlias/"
-        self.assertEqual(cp["discovery_list"]["command"], base + "discovery.py list")
-        self.assertEqual((cp["discovery_ctl"]["command"], cp["discovery_ctl"]["parameters"],
-                          cp["discovery_ctl"]["type"]), (base + "discovery.py ctl", "%s", "script"))
+        for gone in ("discovery_list", "discovery_ctl"):
+            self.assertNotIn(gone, cp.sections())
         self.assertEqual(cp["catalog_update"]["command"], base + "catalog_update.py update")
         self.assertEqual(cp["catalog_reset"]["command"], base + "catalog_update.py reset")
         self.assertEqual((cp["catalog_follow"]["command"], cp["catalog_follow"]["type"]),
@@ -375,6 +376,11 @@ class ActionTests(unittest.TestCase):
                     "data/shared_platforms.txt", "catalog.py", "lib/v2fly.py", "lib/shared.py"):
             self.assertTrue(os.path.isfile(os.path.join(scripts, rel)), rel)
         self.assertFalse(glob.glob(os.path.join(SRC, "**", "v2fly-snapshot.py"), recursive=True))
+        # fonction Discovery retirée en 0.8
+        for rel in ("discovery.py", "lib/discovery.py", "lib/score.py"):
+            self.assertFalse(os.path.exists(os.path.join(scripts, rel)), rel)
+        self.assertFalse(os.path.exists(os.path.join(
+            MVC, "controllers", "OPNsense", "AppAlias", "Api", "DiscoveryController.php")))
 
 
 if __name__ == "__main__":

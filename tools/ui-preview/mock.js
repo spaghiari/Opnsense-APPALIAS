@@ -553,7 +553,7 @@
     };
 })();
 
-/* Ancre d'URL (#catalog, #discovery, ...) : ouvre l'onglet correspondant, pour
+/* Ancre d'URL (#catalog, #settings, ...) : ouvre l'onglet correspondant, pour
    les captures du banc. */
 $(function () {
     if (location.hash) {

@@ -194,7 +194,7 @@ embarqué plus récent) :
   reste annulable ;
 - les règles ajoutées à la main ne sont jamais touchées ; les règles
   décochées à l'import, les noms de plateformes partagées, les règles
-  `keyword:` / `regexp:`, les règles ignorées par la découverte et les règles
+  `keyword:` / `regexp:` et les règles
   `@ads` exclues par la référence (`netflix@-ads`) ne sont jamais ajoutées ;
 - au-delà de 1000 règles pour une application, rien n'est appliqué pour elle,
   l'événement est journalisé et la grille affiche l'avertissement
@@ -216,10 +216,9 @@ de « catalog updates », à cocher dans une modale avant enregistrement, puis
 catalogue suivent le catalogue ; les règles de leurs listes qui n'avaient pas
 été importées jusque-là restent écartées.
 
-**Règles de découverte** : `keyword:` et `regexp:` sont conservées dans la
-configuration mais jamais appliquées par le relais (une seule ligne de
-journal, en debug, indique leur nombre). Elles alimentent le score de
-l'onglet *Discovery*.
+**Règles `keyword:` et `regexp:`** : conservées dans la configuration mais
+jamais appliquées par le relais (une seule ligne de journal, en debug,
+indique leur nombre).
 
 ### Mise à jour du catalogue
 
@@ -255,47 +254,6 @@ ou « Downloaded », date et commit).
 - **Hors ligne** : décocher *Download catalog updates* (onglet *Settings*)
   revient au mode embarqué, sans aucun accès réseau : le catalogue ne change
   alors qu'avec les mises à jour du plugin.
-
-## Découverte
-
-L'onglet *Discovery* (désactivé par défaut, *Settings > Discovery*) propose
-des règles pour vos applications à partir des noms DNS vus par le relais :
-même cible CNAME qu'un nom couvert, chaîne CNAME qui passe par un nom couvert,
-nom présent dans une liste v2fly importée, noms résolus ensemble
-(co-occurrence), même site, règles `keyword:` / `regexp:`. Chaque proposition
-affiche un score, ses raisons et une règle (`full:` par défaut, `domain:` pour
-un groupe de noms du même site, jamais sur une plateforme partagée). **Accept**
-enregistre la règle dans l'application ; rien ne change avant **Apply**. Le
-mode *Learn 2 min* met en avant les noms vus pendant que vous utilisez une
-application.
-
-Les adresses des noms déjà couverts, y compris celles des noms de leurs
-chaînes CNAME, sont ajoutées automatiquement par le relais : la découverte ne
-sert qu'à trouver des noms manquants. Une proposition dont la chaîne CNAME
-passe par un nom couvert par la même application est donc classée
-« already covered » : elle apparaît dans une section repliée, sans **Accept**
-ni **Ignore**, et n'est comptée ni dans les propositions ni dans la pastille
-de la grille (avec *Follow CNAME*, réglage par défaut).
-
-Ce que voit le relais : avec le transfert automatique d'Unbound, seulement
-les domaines des applications et leurs chaînes CNAME (sous-domaines,
-cibles CDN). La découverte complète donc surtout des applications
-existantes ; elle ne voit d'autres domaines que si tout le DNS passe par le
-relais.
-
-### Vie privée
-
-- **Noms seulement** : le relais ne voit que le résolveur local, jamais le
-  client qui a posé la question ; seuls des noms DNS, des compteurs et des
-  horodatages sont gardés (`/var/db/appalias/discovery.json`, 0640).
-- **Rétention** : 7 jours par défaut (1 à 90), plafond de noms (5000 par
-  défaut) ; **Erase discovery data** efface tout.
-- **Désactivée par défaut** ; la désactiver efface les données.
-- Les règles ignorées sont enregistrées dans `config.xml`, donc dans ses
-  sauvegardes.
-- Coût sur le DNS : l'observation d'une réponse est un simple ajout dans une
-  file bornée, sans écriture disque ; le calcul se fait à part, toutes les
-  2 secondes.
 
 ## Exemple
 
@@ -351,12 +309,18 @@ immédiat et la bascule aussi.
   principale pour les adresses réellement servies aux clients. Vider les
   caches (Unbound ou clients) ne change rien à son fonctionnement : le démon
   interroge directement l'amont.
-- **État actuel (0.7)** : catalogue v2fly (vérifié chaque heure, option)
+- **État actuel (0.8)** : catalogue v2fly (vérifié chaque heure, option)
   suivi automatiquement par les applications importées, résolution
   proactive des noms `domain:` / `full:`, DNS over TLS vers
-  l'amont, découverte (option), état du relais avec sa version en tête de
-  page ; les sources ASN ne sont pas encore utilisées et les règles
-  `keyword:` / `regexp:` restent des règles de découverte.
+  l'amont, état du relais avec sa version en tête de page ; les sources
+  ASN ne sont pas encore utilisées et les règles `keyword:` / `regexp:`
+  sont conservées mais jamais appliquées. La fonction de découverte (0.5 à
+  0.7.1) a été retirée en 0.8. Elle proposait des noms absents des règles ;
+  le relais et la résolution proactive ne traitent que les noms déjà présents
+  dans les règles, plus leurs chaînes CNAME (les noms d'une chaîne CNAME d'un
+  nom déjà couvert restent ajoutés par le relais). Pour compléter une
+  application, ajoutez désormais les noms manquants à la main ou depuis le
+  catalogue. Les données de la découverte sont supprimées à la mise à jour.
 
 ## Contribuer, sécurité, licence
 

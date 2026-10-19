@@ -21,6 +21,18 @@ WWW: https://github.com/spaghiari/Opnsense-APPALIAS
 Plugin Changelog
 ================
 
+0.8
+
+* Discovery removed (tab, API, settings, relay engine): it proposed names
+  absent from the rules, which the relay and proactive resolution do not do:
+  they only handle names already in the rules, plus their CNAME chains (names
+  in the CNAME chain of an already covered name are still added by the relay).
+  To complete an application, add the missing names by hand or from the
+  catalog. Its stored data is deleted on upgrade. Rules that were ignored
+  through Discovery no longer hold back catalog follow (Undo puts a rule
+  into the declined list). keyword: and regexp: rules are kept but never
+  applied.
+
 0.7.1
 
 * Applications grid: the rules column shows a short rule count with a
