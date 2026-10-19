@@ -122,16 +122,6 @@ class SharedPlatformsTests(unittest.TestCase):
         self.assertEqual(shared.excluded("domain", "cdn.example.org", p), "shared")
         self.assertEqual(shared.excluded("full", "example.org", p), "shared")
         self.assertIsNone(shared.excluded("full", "x.cdn.example.org", p))
-        # touches (découverte) continue de signaler le sous-domaine
-        self.assertTrue(shared.touches("x.cdn.example.org", p))
-
-    def test_touches(self):
-        p = self.platforms
-        self.assertTrue(shared.touches("cloudfront.net", p))
-        self.assertTrue(shared.touches("d123.cloudfront.net", p))
-        self.assertTrue(shared.touches("net", p))
-        self.assertFalse(shared.touches("netflix.com", p))
-        self.assertFalse(shared.touches("notcloudfront.net", p))
 
     def test_missing_file(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -44,23 +44,17 @@ Mesures : temps de l'amont (autour de l'échange) et de pf (autour de
 _add), en mémoire (lib/metrics.py) ; résumé écrit toutes les
 METRICS_INTERVAL secondes dans metrics.json, jamais sur le chemin de réponse.
 
-Découverte (lib/discovery.py, désactivée par défaut) : sur le chemin de
-réponse, un simple append dans une file bornée ; agrégation, persistance
-(discovery.json) et mode Learn dans des tâches périodiques. Rien n'est
-jamais ajouté à une application par la découverte.
-
 Résolution proactive (lib/proactive.py) : une tâche de fond résout elle-même,
 à intervalle régulier, les noms des applications activées (au plus
 PROACTIVE_MAX_CONCURRENT sondes simultanées, PROACTIVE_RATE par seconde). Les
-réponses passent par process_response(observe=False, hit=False) : jamais de
-découverte, jamais de « dernier usage », jamais de latence client.
+réponses passent par process_response(hit=False) : jamais de
+« dernier usage », jamais de latence client.
 
 Version : le démon écrit la version de son code, son PID et son heure de
 démarrage dans metrics.json dès le démarrage (status.py la compare à la
 version installée).
 
 Signaux : SIGHUP = relecture de config.json et remplacement des tables ;
-SIGUSR1 = commande de découverte (discovery.ctl.json) ;
 SIGTERM/SIGINT = sauvegarde de l'état puis sortie.
 
 Codes de sortie : 0 arrêt normal, 1 erreur d'exécution, 78 (EX_CONFIG)
@@ -81,7 +75,6 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from lib import config as cfgmod  # noqa: E402
-from lib import discovery as discmod  # noqa: E402
 from lib import dnswire  # noqa: E402
 from lib import dot  # noqa: E402
 from lib import metrics  # noqa: E402
@@ -241,12 +234,6 @@ class Relay:
         self._tcp_server = None
         self._sem = None
         self.started = time.time()
-        self.discovery = None    # discmod.Engine quand la découverte est activée
-        self._observer = None    # son Observer, seul objet touché sur le chemin de réponse
-        self.discovery_path = os.path.join(os.path.dirname(os.path.abspath(state_path)),
-                                           os.path.basename(discmod.DISCOVERY_PATH))
-        self.ctl_path = discmod.ctl_path_for(self.discovery_path)
-        self._discovery_purged = 0.0
         self._config_gen = 0     # incrémenté à chaque configuration appliquée
         self.sched = None        # proactive.Scheduler
         self._proactive_targets = {}   # (nom, qtype) -> {tables}
@@ -265,7 +252,6 @@ class Relay:
                                platforms=shared.load(extra=cfg.shared_platforms_extra))
         self._update_pools(cfg)
         self.metrics.retain({self._upstream_key(u) for u in cfg.upstreams})
-        self._update_discovery(cfg)
         self._update_proactive(cfg)
 
     def _update_proactive(self, cfg):
@@ -285,39 +271,6 @@ class Relay:
     def _proactive_notify(self):
         if self._proactive_wake is not None:
             self._proactive_wake.set()
-
-    def _update_discovery(self, cfg):
-        """Active, règle ou arrête la découverte selon la configuration.
-
-        Désactivée : mémoire vidée et discovery.json supprimé (vie privée).
-        Activée au démarrage ou au rechargement : fichier relu (purge de la
-        rétention comprise) quand le moteur n'existait pas encore.
-        """
-        if not cfg.discovery_enabled:
-            if self.discovery is not None:
-                log.info("découverte désactivée : données effacées")
-            self._observer = None
-            self.discovery = None
-            try:
-                discmod.remove_file(self.discovery_path)
-                discmod.remove_file(self.ctl_path)
-            except OSError as exc:
-                log.warning("découverte : suppression de %s impossible : %s", self.discovery_path, exc)
-            return
-        ignored = discmod.Ignored(cfg.discovery_ignored)
-        if self.discovery is None:
-            engine = discmod.Engine(self.matcher.match_name, window=cfg.discovery_window,
-                                    max_names=cfg.discovery_max_names,
-                                    retention_days=cfg.discovery_retention_days,
-                                    ignored=ignored, clock=self.clock, path=self.discovery_path)
-            engine.load()
-            self.discovery = engine
-            self._discovery_purged = self.clock()
-            log.info("découverte activée (%d noms relus)", len(engine.names))
-        else:
-            self.discovery.configure(cfg.discovery_window, cfg.discovery_max_names,
-                                     cfg.discovery_retention_days, ignored, self.matcher.match_name)
-        self._observer = self.discovery.observer
 
     @staticmethod
     def _upstream_key(upstream):
@@ -563,7 +516,7 @@ class Relay:
 
     # -- cœur : ajout des IP --
     async def process_response(self, raw, expect=_UNCHECKED, upstream_ms=None, *,
-                               observe=True, hit=True, source="relay"):
+                               hit=True, source="relay"):
         """Ajoute les IP de la réponse aux tables concernées.
 
         expect = (id, qname) de la requête (dnswire.question_key) : si la
@@ -572,8 +525,7 @@ class Relay:
         rien n'est ajouté. Sans expect : pas de contrôle. upstream_ms : temps
         de l'amont, repris dans la ligne de journal des ajouts.
 
-        Options (défauts = comportement du relais) : observe=False n'alimente
-        pas la découverte ; hit=False ne met pas à jour le « dernier usage »
+        Options (défauts = comportement du relais) : hit=False ne met pas à jour le « dernier usage »
         des tables ; source est une simple étiquette pour les journaux
         ("relay" ou "proactive"), une valeur inconnue ne change rien.
         """
@@ -590,10 +542,6 @@ class Relay:
         chain = dnswire.cname_chain(resp)
         names = chain if self.cfg.follow_cname else [resp.qname]
         tables = self.matcher.match(names)
-        observer = self._observer
-        if observer is not None and observe:
-            # Découverte : un append, rien d'autre (ni calcul, ni disque, ni attente).
-            observer.observe(resp.qname, chain, resp.answers, self.clock(), tables)
         if not tables:
             return
         addrs = dnswire.addresses(resp, chain)
@@ -798,7 +746,7 @@ class Relay:
         if not addrs:
             self.metrics.add_proactive("empty")
             return "nodata", None
-        await self.process_response(raw, expect, observe=False, hit=False, source="proactive")
+        await self.process_response(raw, expect, hit=False, source="proactive")
         self.metrics.add_proactive("ok")
         return "ok", min(ttl for _ip, ttl in addrs)
 
@@ -846,95 +794,6 @@ class Relay:
             self._metrics_saved = self.metrics.version
         except OSError as exc:
             log.debug("écriture des mesures impossible (%s) : %s", self.metrics_path, exc)
-
-    # -- découverte (jamais sur le chemin de réponse) --
-    async def discovery_drain(self):
-        engine = self.discovery
-        if engine is None:
-            return
-        await engine.drain()
-        now = self.clock()
-        if now - self._discovery_purged >= discmod.PURGE_INTERVAL:
-            self._discovery_purged = now
-            removed = engine.purge_old(now)
-            if removed:
-                log.debug("découverte : %d noms retirés (rétention)", removed)
-
-    async def discovery_save(self, force=False):
-        """Écrit discovery.json (instantané pris dans la boucle, écriture dans l'executor)."""
-        engine = self.discovery
-        if engine is None or not (engine.dirty or force):
-            return
-        generation = engine.generation
-        engine.dirty = False     # avant la copie : un changement pendant la copie reste à écrire
-        # sérialisation par tranches dans la boucle (Engine.snapshot_json), écriture
-        # (disque, fsync) dans l'executor
-        snapshot = await engine.snapshot_json()
-        loop = asyncio.get_running_loop()
-        try:
-            await loop.run_in_executor(None, discmod.write_text, self.discovery_path, snapshot)
-        except OSError as exc:
-            engine.dirty = True
-            log.error("découverte : écriture de %s impossible : %s", self.discovery_path, exc)
-            return
-        if self.discovery is not engine or engine.generation != generation:
-            # désactivée ou purgée pendant l'écriture : le fichier ne doit pas rester
-            try:
-                discmod.remove_file(self.discovery_path)
-            except OSError:
-                pass
-
-    def _discovery_save_sync(self):
-        engine = self.discovery
-        if engine is None:
-            return
-        try:
-            discmod.write_json(self.discovery_path, engine.to_dict())
-        except OSError as exc:
-            log.error("découverte : écriture de %s impossible : %s", self.discovery_path, exc)
-
-    def request_ctl(self):
-        self.spawn(self.discovery_ctl())
-
-    async def discovery_ctl(self):
-        """Commande SIGUSR1 : discovery.ctl.json lu, validé, puis supprimé."""
-        try:
-            with open(self.ctl_path, "r", encoding="utf-8") as fh:
-                text = fh.read(discmod.MAX_CTL_BYTES + 1)
-        except OSError as exc:
-            log.warning("découverte : commande illisible (%s) : %s", self.ctl_path, exc)
-            return
-        finally:
-            try:
-                discmod.remove_file(self.ctl_path)
-            except OSError:
-                pass
-        engine = self.discovery
-        if engine is None:
-            log.info("découverte désactivée : commande ignorée")
-            return
-        now = self.clock()
-        try:
-            cmd = discmod.parse_ctl(text, now)
-        except ValueError as exc:
-            log.warning("découverte : commande refusée : %s", exc)
-            return
-        if cmd["cmd"] == "purge":
-            engine.clear()
-            try:
-                discmod.remove_file(self.discovery_path)
-            except OSError as exc:
-                log.error("découverte : suppression de %s impossible : %s", self.discovery_path, exc)
-            log.info("découverte : données effacées à la demande")
-            return
-        if cmd["cmd"] == "learn":
-            engine.start_learn(cmd["until"], cmd["app_uuid"], now)
-            log.info("découverte : apprentissage pendant %d s", int(cmd["until"] - now))
-        elif cmd["cmd"] == "stop_learn":
-            engine.stop_learn("user", now)
-            log.info("découverte : apprentissage arrêté")
-        await engine.drain(now)
-        await self.discovery_save(force=True)
 
     async def _periodic(self, interval, func):
         while True:
@@ -1009,7 +868,6 @@ class Relay:
         self._log_upstream()
         if install_signals:
             for sig, cb in ((getattr(signal, "SIGHUP", None), self.request_reload),
-                            (getattr(signal, "SIGUSR1", None), self.request_ctl),
                             (signal.SIGTERM, self.request_stop),
                             (signal.SIGINT, self.request_stop)):
                 if sig is None:
@@ -1023,8 +881,6 @@ class Relay:
             asyncio.ensure_future(self._periodic(self.save_interval, self.save_state)),
             asyncio.ensure_future(self._periodic(DOT_PRUNE_INTERVAL, self.prune_pools)),
             asyncio.ensure_future(self._periodic(METRICS_INTERVAL, self.save_metrics)),
-            asyncio.ensure_future(self._periodic(discmod.DRAIN_INTERVAL, self.discovery_drain)),
-            asyncio.ensure_future(self._periodic(discmod.SAVE_INTERVAL, self.discovery_save)),
         ]
         # Version du code en cours d'exécution, visible tout de suite dans l'état.
         self.save_metrics(force=True)
@@ -1045,16 +901,10 @@ class Relay:
             self.close_pools()
             self.save_state()
             self.save_metrics()
-            self._discovery_save_sync()
             log.info("arrêt : état sauvegardé")
 
 
 def main(argv=None):
-    # SIGUSR1 (commande de découverte) ignoré dès le départ : un signal reçu
-    # avant l'installation du gestionnaire ne doit pas tuer le démon (action
-    # par défaut). Le gestionnaire asyncio le remplace dans Relay.run.
-    if hasattr(signal, "SIGUSR1"):
-        signal.signal(signal.SIGUSR1, signal.SIG_IGN)
     parser = argparse.ArgumentParser(description="Relais DNS d'os-appalias")
     parser.add_argument("--config", default=cfgmod.CONFIG_PATH)
     parser.add_argument("--state", default=cfgmod.STATE_PATH)

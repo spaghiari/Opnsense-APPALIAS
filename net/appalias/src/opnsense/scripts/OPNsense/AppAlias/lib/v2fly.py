@@ -29,7 +29,7 @@ Format du .lst (produit par tools/v2fly-snapshot.py) : une section
 
 - « domain:x » ou « x » seul : x et ses sous-domaines ;
 - « full:x » : x exactement ;
-- « keyword:x », « regexp:x » : règles de découverte (conservées, jamais
+- « keyword:x », « regexp:x » : règles non appliquées (conservées, jamais
   appliquées par le relais) ;
 - « include:liste » : règles d'une autre liste, filtrables par attribut
   (« @ads » : seulement les règles qui portent @ads ; « @-ads » : toutes
@@ -52,7 +52,7 @@ KIND_FULL = "full"
 KIND_KEYWORD = "keyword"
 KIND_REGEXP = "regexp"
 KINDS = (KIND_DOMAIN, KIND_FULL, KIND_KEYWORD, KIND_REGEXP)
-DISCOVERY_KINDS = (KIND_KEYWORD, KIND_REGEXP)
+UNAPPLIED_KINDS = (KIND_KEYWORD, KIND_REGEXP)
 KIND_ORDER = {k: i for i, k in enumerate(KINDS)}
 
 MAX_DEPTH = 32

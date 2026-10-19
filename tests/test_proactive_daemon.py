@@ -269,19 +269,14 @@ class ProactiveDaemonTests(unittest.TestCase):
         self.assertEqual(relay.state.count("APP_X"), 2)
         self.assertEqual(len(fake.contents("APP_X")), 2)
 
-    def test_discovery_and_last_hit_stay_untouched(self):
+    def test_last_hit_stays_untouched(self):
         with tempfile.TemporaryDirectory() as tmp:
-            cfg = make_cfg(discovery_enabled=True)
+            cfg = make_cfg()
             relay, fake = make_relay(cfg, state_path=os.path.join(tmp, "state.json"))
             Upstream(relay)
 
-            async def scenario():
-                await run_pass(relay)
-                await relay.discovery.drain()
-
-            asyncio.run(scenario())
+            asyncio.run(run_pass(relay))
             self.assertEqual(fake.contents("APP_X"), {IP})
-            self.assertEqual(len(relay.discovery.names), 0)
             self.assertNotIn("APP_X", relay.state.last_hit)
 
     def test_failure_outcomes_are_counted(self):

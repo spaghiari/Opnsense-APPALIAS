@@ -29,10 +29,9 @@ Paramètre d'URL `?state=` (liens aussi dans la barre du haut) :
 
 | URL | Effet |
 |---|---|
-| `index.html` | relais en marche, 3 apps, Discovery active |
+| `index.html` | relais en marche, 3 apps |
 | `index.html?state=stopped` | relais arrêté, avertissement DoT en alerte rouge (`alert-danger`) |
-| `index.html?state=discovery-off` | carte « Discovery is off » |
-| `index.html?state=empty` | aucune application, journal et propositions vides |
+| `index.html?state=empty` | aucune application, journal vide |
 | `index.html?state=error` | catalogue en erreur (info, populaires, recherche, aperçu, journal, écarts, mise à jour) |
 
 Un état est un dossier `fixtures/<état>/` : ses fichiers remplacent ceux de
@@ -42,7 +41,7 @@ suffit à créer un état (relancer `build.py`).
 ## Largeurs étroites
 
 `index.html` ne se laisse pas réduire sous la fenêtre du navigateur. Pour juger
-la mise en page mobile, ouvrir `mobile.html?w=420&tab=discovery&state=empty` :
+la mise en page mobile, ouvrir `mobile.html?w=420&tab=catalog&state=empty` :
 la page est chargée dans une iframe de 420 px (media queries comprises) ;
 `log=1` liste les éléments qui dépassent. Edge en `--headless` ne descend pas
 sous environ 490 px de fenêtre : une capture `--window-size=420` est mise en page
@@ -77,18 +76,16 @@ Deux fixtures sont indexées par un paramètre, avec `*` comme valeur par défau
 `catalog_preview.json` (paramètre `ref`). `catalog_diff` filtre sur `uuid`
 si la requête en fournit un.
 
-Endpoints simulés (33) :
+Endpoints simulés (23) :
 
 - service : `status`, `unboundStatus`, `unboundRestart`, `reconfigure`
 - settings : `get`, `set`, `searchApp`, `getApp`, `setApp`, `addApp`, `delApp`, `toggleApp`
 - catalog : `info`, `popular`, `search`, `preview`, `import`, `diff`, `applyDiff`,
   `update`, `reset`, `followLog`, `undoFollow`
-- discovery : `status`, `proposals`, `unassigned`, `accept`, `ignore`, `unignore`,
-  `learn`, `stopLearn`, `purge`, `refresh`
 
 ## Limites et hypothèses
 
-- Le banc est sans état : les écritures (`setApp`, `import`, `accept`,
+- Le banc est sans état : les écritures (`setApp`, `import`,
   `undoFollow`...) répondent par une fixture fixe et ne modifient pas les
   données affichées. Les listes se rechargent à l'identique.
 - Les champs de `searchApp` portent les clés des options (`both`, `inet`), pas
@@ -104,6 +101,4 @@ Endpoints simulés (33) :
 - Bootstrap-select et le widget tokenize d'OPNsense ne sont pas chargés : les
   listes déroulantes sont des `<select>` natifs, les listes de jetons un rendu
   statique simplifié ; leur largeur (346 px) reprend celle du pare-feu.
-- Le compte à rebours de Learn (74 s au chargement) s'écoule dans le navigateur ;
-  à zéro, la page recharge les données (fixture inchangée).
-- Les dates de la fixture (journal, Discovery) sont fixes, en octobre 2026.
+- Les dates de la fixture (journal) sont fixes, en octobre 2026.

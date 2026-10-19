@@ -195,27 +195,16 @@ class CatalogController extends ApiControllerBase
     /**
      * Règles que le suivi (lib/follow.py plan_app) ajouterait à l'application :
      * mêmes écarts (déjà importée, déclinée, déjà présente sous sa forme
-     * canonique, doublon) et mêmes exclusions (virgule, découverte, refus,
-     * plateforme partagée ou TLD, noms ignorés par la découverte).
+     * canonique, doublon) et mêmes exclusions (virgule, non appliquées keyword:/regexp:, refus,
+     * plateforme partagée ou TLD).
      */
-    private static function followAdds($catalog, $imported, $declined, $domains, $platforms, $ignoredRules)
+    private static function followAdds($catalog, $imported, $declined, $domains, $platforms)
     {
         $importedSet = array_fill_keys($imported, true);
         $declinedSet = array_fill_keys($declined, true);
         $present = [];
         foreach ($domains as $domain) {
             $present[AppAlias::ruleKey($domain)] = true;
-        }
-        $ignFull = [];
-        $ignDomain = [];
-        foreach ($ignoredRules as $rule) {
-            if (preg_match('/^(full|domain):(.+)$/', trim((string)$rule), $m) === 1) {
-                if ($m[1] === 'full') {
-                    $ignFull[AppAlias::normalizeHost($m[2])] = true;
-                } else {
-                    $ignDomain[AppAlias::normalizeHost($m[2])] = true;
-                }
-            }
         }
         $add = [];
         foreach ($catalog as $text) {
@@ -241,21 +230,6 @@ class CatalogController extends ApiControllerBase
             }
             if ($kind === 'domain' || $kind === 'full') {
                 if (AppAlias::catalogExclusion($kind, $value, $platforms) !== null) {
-                    continue;
-                }
-                $name = AppAlias::normalizeHost($value);
-                if (isset($ignFull[$name])) {
-                    continue;
-                }
-                $labels = explode('.', $name);
-                $hit = false;
-                for ($i = 0; $i < count($labels); $i++) {
-                    if (isset($ignDomain[implode('.', array_slice($labels, $i))])) {
-                        $hit = true;
-                        break;
-                    }
-                }
-                if ($hit) {
                     continue;
                 }
             }
@@ -291,7 +265,7 @@ class CatalogController extends ApiControllerBase
     }
 
     /**
-     * Sélection automatique (import sans « rules ») : règles ni de découverte,
+     * Sélection automatique (import sans « rules ») : règles ni non appliquées (keyword:/regexp:),
      * ni sur une plateforme partagée, ni refusées, ni avec virgule. Si l'aperçu
      * contient des règles @ads, la référence reçoit « @-ads » (comme le fait
      * l'interface) et l'aperçu est relancé.
@@ -328,7 +302,7 @@ class CatalogController extends ApiControllerBase
             $text = (string)($rule['rule'] ?? '');
             if (
                 $text !== '' &&
-                empty($rule['discovery']) &&
+                empty($rule['unapplied']) &&
                 empty($rule['shared']) &&
                 // « tld » comme « shared » : jamais sélectionnés automatiquement
                 AppAlias::catalogExclusion(
@@ -647,8 +621,7 @@ class CatalogController extends ApiControllerBase
                         $imported,
                         AppAlias::splitList($app->catalog_declined),
                         $domains,
-                        $platforms,
-                        AppAlias::splitList($mdl->general->discovery_ignored)
+                        $platforms
                     );
                 } else {
                     $adds = self::minusRules($item['added'], $domains);

@@ -35,9 +35,8 @@ Par application suivie (catalog_follow=1, catalog_refs non vide) :
   dans domains, ni les règles refusées à l'import (catalog_declined), ni
   celles que l'import aurait décochées : garde-fou (domain: sur une
   plateforme partagée ou un TLD seul), nom qui touche une plateforme
-  partagée, keyword:/regexp: (règles de découverte), virgule, règle ignorée
-  par la découverte (general.discovery_ignored). Les règles @ads sont déjà
-  exclues par la référence (« netflix@-ads »).
+  partagée, keyword:/regexp: (règles non appliquées), virgule. Les règles @ads sont
+  déjà exclues par la référence (« netflix@-ads »).
 - retrait = catalog_rules - résolution : seulement des règles venues du
   catalogue ; les règles ajoutées à la main (domains - catalog_rules) ne
   sont jamais touchées.
@@ -110,34 +109,16 @@ def rule_key(rule):
     return "domain:" + shared.normalize(rule)
 
 
-class Ignored:
-    """Règles full:/domain: ignorées par la découverte (general.discovery_ignored)."""
-
-    def __init__(self, rules=()):
-        self.full = set()
-        self.domain = set()
-        for rule in rules or ():
-            match = re.match(r"^(full|domain):(.+)$", str(rule).strip())
-            if match:
-                (self.full if match.group(1) == "full" else self.domain).add(shared.normalize(match.group(2)))
-
-    def match(self, name):
-        if name in self.full:
-            return True
-        labels = name.split(".")
-        return any(".".join(labels[i:]) in self.domain for i in range(len(labels)))
-
-
 # --- différentiel ---------------------------------------------------------
-def skip_reason(kind, value, platforms, ignored):
+def skip_reason(kind, value, platforms):
     """Raison pour laquelle une nouvelle règle du catalogue n'est pas ajoutée
     automatiquement, ou None. Mêmes critères que les cases décochées par
-    défaut à l'import, plus les règles ignorées par la découverte."""
+    défaut à l'import."""
     text = v2fly.rule_text(kind, value)
     if "," in text:
         return "comma"
-    if kind in v2fly.DISCOVERY_KINDS:
-        return "discovery"
+    if kind in v2fly.UNAPPLIED_KINDS:
+        return "unapplied"
     if shared.refused(kind, value, platforms) is not None:
         return "refused"
     if kind in (v2fly.KIND_DOMAIN, v2fly.KIND_FULL):
@@ -145,12 +126,10 @@ def skip_reason(kind, value, platforms, ignored):
         # « tld » (full:com) comme « shared » : exclus du suivi
         if shared.excluded(kind, name, platforms) is not None:
             return "shared"
-        if ignored is not None and ignored.match(name):
-            return "ignored"
     return None
 
 
-def plan_app(items, catalog_rules, domains, declined=(), platforms=frozenset(), ignored=None,
+def plan_app(items, catalog_rules, domains, declined=(), platforms=frozenset(),
              cap=MAX_APP_RULES):
     """Écarts d'une application suivie.
 
@@ -175,7 +154,7 @@ def plan_app(items, catalog_rules, domains, declined=(), platforms=frozenset(), 
         text = v2fly.rule_text(kind, value)
         if text in imported or text in declined_set or rule_key(text) in present or text in add:
             continue
-        reason = skip_reason(kind, value, platforms, ignored)
+        reason = skip_reason(kind, value, platforms)
         if reason is not None:
             skipped.setdefault(reason, []).append(text)
             continue

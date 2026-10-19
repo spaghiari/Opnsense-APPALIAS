@@ -24,10 +24,6 @@
         }
       },
       "unbound_autoforward": "1",
-      "discovery_enabled": "1",
-      "discovery_retention_days": "7",
-      "discovery_max_names": "5000",
-      "discovery_window": "5",
       "follow_cname": "1",
       "ttl_min": "300",
       "ttl_margin": "3600",

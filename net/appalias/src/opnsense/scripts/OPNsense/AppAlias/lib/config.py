@@ -35,9 +35,7 @@ comme dans le modèle MVC) :
               "ttl_min": 300, "ttl_margin": 3600, "max_entries_per_app": 20000,
               "exclude_networks": ["cidr", ...], "alias_prefix": "APP_",
               "loglevel": "info", "shared_platforms_extra": ["name", ...],
-              "unbound_autoforward": false, "discovery_enabled": false,
-              "discovery_retention_days": 7, "discovery_max_names": 5000,
-              "discovery_window": 5, "discovery_ignored": ["full:x", "domain:y", ...],
+              "unbound_autoforward": false,
               "proactive_enabled": true, "proactive_interval_min": 300,
               "proactive_interval_max": 3600, "proactive_prefixes": ["www"]},
   "apps": [{"uuid": "...", "enabled": true, "name": "X", "description": "...",
@@ -53,9 +51,6 @@ Amonts : upstreams est une liste d'Upstream(host, port, tls_name), l'amont
 principal en tête. tls_name vaut None en DNS clair ; en DNS over TLS
 (« dot »), c'est le nom vérifié dans le certificat et envoyé en SNI, obligatoire
 pour chaque amont (celui de l'amont principal par défaut pour les secours).
-
-Découverte (désactivée par défaut) : discovery_ignored ne garde que des règles
-« full:x » ou « domain:x » valides (2000 au plus), normalisées en (type, nom).
 
 Résolution proactive (activée par défaut, absente des anciens config.json) :
 proactive_interval_min <= proactive_interval_max, ce dernier restant strictement
@@ -81,18 +76,12 @@ FAMILIES = ("both", "inet", "inet6")
 PROTOCOLS = ("dns", "dot")
 DEFAULT_PORTS = {"dns": 53, "dot": 853}
 
-# Découverte : bornes des réglages, (défaut, minimum, maximum), comme le modèle.
-DISCOVERY_RETENTION = (7, 1, 90)          # jours
-DISCOVERY_MAX_NAMES = (5000, 500, 50000)
-DISCOVERY_WINDOW = (5, 1, 30)             # secondes
-DISCOVERY_MAX_IGNORED = 2000
 # Résolution proactive : bornes (défaut, minimum, maximum) en secondes.
 PROACTIVE_INTERVAL_MIN = (300, 60, 86400)
 PROACTIVE_INTERVAL_MAX = (3600, 300, 86400)
 PROACTIVE_MAX_PREFIXES = 8
 PROACTIVE_DEFAULT_PREFIXES = ["www"]
 LABEL_RE = re.compile(r"^[a-z0-9_]([a-z0-9_-]{0,61}[a-z0-9_])?$")
-HOST_RE = re.compile(r"^[a-z0-9_]([a-z0-9_-]{0,61}[a-z0-9_])?(\.[a-z0-9_]([a-z0-9_-]{0,61}[a-z0-9_])?)*$")
 
 # Nom TLS : nom d'hôte (labels LDH) ou adresse IP.
 TLS_NAME_RE = re.compile(r"^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
@@ -255,30 +244,6 @@ def parse_upstream(text, default_port, default_tls_name=None, protocol="dns"):
     return Upstream(host, port, tls_name)
 
 
-def parse_ignored(values):
-    """Règles ignorées par la découverte -> [(« full » | « domain », nom)].
-
-    Seuls « full:x » et « domain:x » sont acceptés (x nom d'hôte valide) ; le
-    reste est écarté avec un avertissement. 2000 règles au plus.
-    """
-    out = []
-    seen = set()
-    for item in as_list(values):
-        kind, sep, value = item.partition(":")
-        kind = kind.strip().lower()
-        value = value.strip().lower().rstrip(".")
-        if not sep or kind not in ("full", "domain") or len(value) > 253 or not HOST_RE.match(value):
-            log.warning("discovery_ignored : règle écartée (full:x ou domain:x attendu) : %s", item)
-            continue
-        if (kind, value) in seen:
-            continue
-        seen.add((kind, value))
-        out.append((kind, value))
-        if len(out) >= DISCOVERY_MAX_IGNORED:
-            break
-    return out
-
-
 def parse_prefixes(value):
     """Préfixes de la résolution proactive -> liste de labels DNS (minuscules).
 
@@ -398,11 +363,6 @@ class Config:
     unbound: dict = field(default_factory=dict)
     upstream_protocol: str = "dns"
     upstream_tls_name: str = None
-    discovery_enabled: bool = False
-    discovery_retention_days: int = DISCOVERY_RETENTION[0]
-    discovery_max_names: int = DISCOVERY_MAX_NAMES[0]
-    discovery_window: int = DISCOVERY_WINDOW[0]
-    discovery_ignored: list = field(default_factory=list)   # [(type, nom)]
     proactive_enabled: bool = True
     proactive_interval_min: int = PROACTIVE_INTERVAL_MIN[0]
     proactive_interval_max: int = PROACTIVE_INTERVAL_MAX[0]
@@ -524,11 +484,6 @@ def from_dict(data):
         unbound=data.get("unbound") if isinstance(data.get("unbound"), dict) else {},
         upstream_protocol=protocol,
         upstream_tls_name=tls_name,
-        discovery_enabled=as_bool(gen.get("discovery_enabled"), False),
-        discovery_retention_days=as_int(gen.get("discovery_retention_days"), *DISCOVERY_RETENTION),
-        discovery_max_names=as_int(gen.get("discovery_max_names"), *DISCOVERY_MAX_NAMES),
-        discovery_window=as_int(gen.get("discovery_window"), *DISCOVERY_WINDOW),
-        discovery_ignored=parse_ignored(gen.get("discovery_ignored")),
         proactive_enabled=as_bool(gen.get("proactive_enabled"), True) and proactive_ok,
         proactive_interval_min=proactive_min,
         proactive_interval_max=proactive_max,

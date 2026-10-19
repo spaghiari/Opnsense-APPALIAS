@@ -49,9 +49,9 @@ def items(*rules):
 
 
 class PlanTests(unittest.TestCase):
-    def plan(self, resolved, catalog_rules, domains, declined=(), ignored=None, cap=follow.MAX_APP_RULES):
+    def plan(self, resolved, catalog_rules, domains, declined=(), cap=follow.MAX_APP_RULES):
         return follow.plan_app(items(*resolved), catalog_rules, domains, declined, PLATFORMS,
-                               ignored, cap)
+                               cap=cap)
 
     def test_add_and_remove(self):
         p = self.plan(["domain:a.example", "domain:b.example", "full:new.example"],
@@ -91,17 +91,15 @@ class PlanTests(unittest.TestCase):
         self.assertEqual((p["add"], p["remove"]), ([], []))
 
     def test_guard_and_skipped_rules(self):
-        ignored = follow.Ignored(["domain:noisy.example", "full:one.example", "bogus"])
         p = self.plan(["domain:cloudfront.net", "domain:com", "full:d1.cloudfront.net", "full:cloudfront.net",
-                       "keyword:stream", "regexp:^x$", "domain:a.noisy.example", "full:one.example",
-                       "domain:ok.example"],
-                      [], [], ignored=ignored)
+                       "keyword:stream", "regexp:^x$", "domain:ok.example"],
+                      [], [])
         # sous-domaine dédié d'une plateforme : ajouté ; plateforme elle-même : sautée
         self.assertEqual(sorted(p["add"]), ["domain:ok.example", "full:d1.cloudfront.net"])
         self.assertEqual(p["skipped"]["refused"], ["domain:cloudfront.net", "domain:com"])
         self.assertEqual(p["skipped"]["shared"], ["full:cloudfront.net"])
-        self.assertEqual(p["skipped"]["discovery"], ["keyword:stream", "regexp:^x$"])
-        self.assertEqual(p["skipped"]["ignored"], ["domain:a.noisy.example", "full:one.example"])
+        self.assertEqual(p["skipped"]["unapplied"], ["keyword:stream", "regexp:^x$"])
+        self.assertNotIn("ignored", p["skipped"])
 
     def test_tld_full_skipped(self):
         # « tld » exclu du suivi comme « shared » (uniformité avec proactive.py)
@@ -162,6 +160,7 @@ class CliPlanTests(unittest.TestCase):
                "catalog_rules": ["domain:stream.example", "domain:old.example"],
                "domains": ["domain:stream.example", "domain:old.example", "full:mine.example"],
                "declined": ["full:api.stream.example"]}
+        # « ignored » (ancienne fonction Discovery) reste toléré dans le stdin : ignoré en silence
         out = self.run_cli(["plan"], {"apps": [app], "ignored": [], "shared_extra": ["akamaized.net"],
                                       "cap": 1000})
         self.assertEqual(out["revision"], "c" * 40)
@@ -171,7 +170,7 @@ class CliPlanTests(unittest.TestCase):
         self.assertEqual(p["domains"], ["domain:stream.example", "full:mine.example", "domain:newcdn.example"])
         self.assertEqual(p["skipped"]["refused"], ["domain:cloudfront.net"])
         self.assertEqual(p["skipped"]["shared"], ["full:akamaized.net"])   # shared_extra pris en compte
-        self.assertEqual(p["skipped"]["discovery"], ["keyword:stream"])
+        self.assertEqual(p["skipped"]["unapplied"], ["keyword:stream"])
 
     def test_plan_unknown_list_only_affects_its_app(self):
         apps = [{"uuid": UUID, "name": "A", "refs": ["vanished"], "catalog_rules": [], "domains": ["x.example"]},
@@ -380,7 +379,7 @@ class CatalogUpdateHookTests(unittest.TestCase):
 class ImportDefaultsTests(unittest.TestCase):
     """Les règles ajoutées par le suivi suivent les cases cochées par défaut à
     l'import : mêmes critères que catalog.py preview (shared, refused,
-    discovery)."""
+    unapplied)."""
 
     def test_same_criteria_as_preview(self):
         cat = v2fly.Catalog.parse(LST)

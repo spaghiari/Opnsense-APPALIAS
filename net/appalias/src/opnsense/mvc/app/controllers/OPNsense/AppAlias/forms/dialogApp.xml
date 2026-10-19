@@ -21,7 +21,7 @@
         <type>select_multiple</type>
         <style>tokenize</style>
         <allownew>true</allownew>
-        <help>"example.com" or "domain:example.com": the domain and its sub-domains. "full:www.example.com": this exact name. "keyword:" and "regexp:" are discovery rules: kept, but never applied by the relay. A "domain:" rule on a top-level domain or on a shared platform (CDN, cloud) is refused: use "full:" or a dedicated sub-domain.</help>
+        <help>"example.com" or "domain:example.com": the domain and its sub-domains. "full:www.example.com": this exact name. "keyword:" and "regexp:" rules are kept but never applied by the relay. A "domain:" rule on a top-level domain or on a shared platform (CDN, cloud) is refused: use "full:" or a dedicated sub-domain.</help>
     </field>
     <field>
         <id>app.networks</id>

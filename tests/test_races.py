@@ -223,19 +223,10 @@ class MismatchTests(unittest.TestCase):
         self.assertEqual(len(fake.ops("add")), 1)
 
 
-class _FakeObserver:
-    def __init__(self):
-        self.calls = []
-
-    def observe(self, *args):
-        self.calls.append(args)
-
-
 class OptionsTests(unittest.TestCase):
-    def test_defaults_observe_hit_measure(self):
+    def test_defaults_hit_measure(self):
         fake = FakePf()
         relay = make_relay(fake)
-        relay._observer = _FakeObserver()
         raw, key = response()
 
         async def fake_udp(query, host, port):
@@ -243,21 +234,11 @@ class OptionsTests(unittest.TestCase):
 
         relay._udp_exchange = fake_udp
         asyncio.run(relay.process_response(raw, expect=key))
-        self.assertEqual(len(relay._observer.calls), 1)
         self.assertIn("APP_T", relay.state.last_hit)
         timing = {}
         self.assertEqual(asyncio.run(relay.forward(build_query("www.example.com"), "udp", timing)), raw)
         self.assertIn("upstream_ms", timing)
         self.assertEqual(len(relay.metrics.upstreams), 1)
-
-    def test_observe_false(self):
-        fake = FakePf()
-        relay = make_relay(fake)
-        relay._observer = _FakeObserver()
-        raw, key = response()
-        asyncio.run(relay.process_response(raw, expect=key, observe=False))
-        self.assertEqual(relay._observer.calls, [])
-        self.assertIn(IP, fake.contents("APP_T"))
 
     def test_hit_false(self):
         fake = FakePf()

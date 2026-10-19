@@ -75,12 +75,6 @@ $out = [
         'shared_platforms_extra' => AppAlias::splitList($gen->shared_platforms_extra),
         // opt-in : valeur vide (config 0.2) = désactivé
         'unbound_autoforward' => (string)$gen->unbound_autoforward == '1',
-        // découverte, opt-in : valeur vide (config 0.4) = désactivée
-        'discovery_enabled' => (string)$gen->discovery_enabled == '1',
-        'discovery_retention_days' => $intOrNull($gen->discovery_retention_days),
-        'discovery_max_names' => $intOrNull($gen->discovery_max_names),
-        'discovery_window' => $intOrNull($gen->discovery_window),
-        'discovery_ignored' => AppAlias::splitList($gen->discovery_ignored),
         // résolution proactive : activée par défaut (valeur vide = défaut côté démon)
         'proactive_enabled' => (string)$gen->proactive_enabled !== '0',
         'proactive_interval_min' => $intOrNull($gen->proactive_interval_min),

@@ -14,7 +14,7 @@
         "kind": "domain",
         "value": "twitch.tv",
         "attrs": [],
-        "discovery": false,
+        "unapplied": false,
         "shared": false,
         "refused": null
       },
@@ -23,7 +23,7 @@
         "kind": "domain",
         "value": "ttvnw.net",
         "attrs": [],
-        "discovery": false,
+        "unapplied": false,
         "shared": false,
         "refused": null
       },
@@ -32,7 +32,7 @@
         "kind": "domain",
         "value": "jtvnw.net",
         "attrs": [],
-        "discovery": false,
+        "unapplied": false,
         "shared": false,
         "refused": null
       },
@@ -41,7 +41,7 @@
         "kind": "domain",
         "value": "twitchcdn.net",
         "attrs": [],
-        "discovery": false,
+        "unapplied": false,
         "shared": false,
         "refused": null
       },
@@ -50,7 +50,7 @@
         "kind": "domain",
         "value": "twitchsvc.net",
         "attrs": [],
-        "discovery": false,
+        "unapplied": false,
         "shared": false,
         "refused": null
       },
@@ -61,7 +61,7 @@
         "attrs": [
           "ads"
         ],
-        "discovery": false,
+        "unapplied": false,
         "shared": false,
         "refused": null
       },
@@ -70,7 +70,7 @@
         "kind": "full",
         "value": "twitch.map.fastly.net",
         "attrs": [],
-        "discovery": false,
+        "unapplied": false,
         "shared": true,
         "refused": null
       },
@@ -79,7 +79,7 @@
         "kind": "domain",
         "value": "cloudfront.net",
         "attrs": [],
-        "discovery": false,
+        "unapplied": false,
         "shared": true,
         "refused": "shared"
       },
@@ -88,7 +88,7 @@
         "kind": "domain",
         "value": "tv",
         "attrs": [],
-        "discovery": false,
+        "unapplied": false,
         "shared": false,
         "refused": "tld"
       },
@@ -97,7 +97,7 @@
         "kind": "keyword",
         "value": "twitch",
         "attrs": [],
-        "discovery": true,
+        "unapplied": true,
         "shared": false,
         "refused": null
       },
@@ -106,7 +106,7 @@
         "kind": "regexp",
         "value": "^video-edge-[a-z0-9]+\\.ttvnw\\.net$",
         "attrs": [],
-        "discovery": true,
+        "unapplied": true,
         "shared": false,
         "refused": null
       }
@@ -130,7 +130,7 @@
         "kind": "domain",
         "value": "netflix.com",
         "attrs": [],
-        "discovery": false,
+        "unapplied": false,
         "shared": false,
         "refused": null
       },
@@ -139,7 +139,7 @@
         "kind": "domain",
         "value": "nflxvideo.net",
         "attrs": [],
-        "discovery": false,
+        "unapplied": false,
         "shared": false,
         "refused": null
       },
@@ -148,7 +148,7 @@
         "kind": "domain",
         "value": "nflximg.net",
         "attrs": [],
-        "discovery": false,
+        "unapplied": false,
         "shared": false,
         "refused": null
       },
@@ -157,7 +157,7 @@
         "kind": "domain",
         "value": "nflxso.net",
         "attrs": [],
-        "discovery": false,
+        "unapplied": false,
         "shared": false,
         "refused": null
       },
@@ -166,7 +166,7 @@
         "kind": "domain",
         "value": "nflxext.com",
         "attrs": [],
-        "discovery": false,
+        "unapplied": false,
         "shared": false,
         "refused": null
       },
@@ -177,7 +177,7 @@
         "attrs": [
           "ads"
         ],
-        "discovery": false,
+        "unapplied": false,
         "shared": false,
         "refused": null
       },
@@ -188,7 +188,7 @@
         "attrs": [
           "ads"
         ],
-        "discovery": false,
+        "unapplied": false,
         "shared": false,
         "refused": null
       }
@@ -212,7 +212,7 @@
         "kind": "domain",
         "value": "twitch.tv",
         "attrs": [],
-        "discovery": false,
+        "unapplied": false,
         "shared": false,
         "refused": null
       },
@@ -221,7 +221,7 @@
         "kind": "domain",
         "value": "ttvnw.net",
         "attrs": [],
-        "discovery": false,
+        "unapplied": false,
         "shared": false,
         "refused": null
       },
@@ -230,7 +230,7 @@
         "kind": "domain",
         "value": "jtvnw.net",
         "attrs": [],
-        "discovery": false,
+        "unapplied": false,
         "shared": false,
         "refused": null
       },
@@ -239,7 +239,7 @@
         "kind": "domain",
         "value": "twitchcdn.net",
         "attrs": [],
-        "discovery": false,
+        "unapplied": false,
         "shared": false,
         "refused": null
       },
@@ -248,7 +248,7 @@
         "kind": "domain",
         "value": "twitchsvc.net",
         "attrs": [],
-        "discovery": false,
+        "unapplied": false,
         "shared": false,
         "refused": null
       }

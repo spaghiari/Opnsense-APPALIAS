@@ -53,8 +53,7 @@ start_cmd="appaliasd_start"
 stop_cmd="appaliasd_stop"
 status_cmd="appaliasd_status"
 reload_cmd="appaliasd_reload"
-ctl_cmd="appaliasd_ctl"
-extra_commands="reload ctl"
+extra_commands="reload"
 
 appaliasd_pid()
 {
@@ -129,13 +128,6 @@ appaliasd_reload()
 {
 	# SIGHUP : relecture de config.json.
 	appaliasd_signal HUP
-}
-
-appaliasd_ctl()
-{
-	# SIGUSR1 : commande de découverte (/var/db/appalias/discovery.ctl.json,
-	# écrite par discovery.py).
-	appaliasd_signal USR1
 }
 
 run_rc_command "$1"
