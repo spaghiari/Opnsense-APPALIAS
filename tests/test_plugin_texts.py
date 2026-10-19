@@ -134,10 +134,10 @@ class ModelTests(unittest.TestCase):
             self.assertIn(name, volt)
 
     def test_plugin_version(self):
-        self.assertRegex(read(os.path.join(PLUGIN, "Makefile")), r"PLUGIN_VERSION=\s+0.7\n")
-        self.assertIn("\n0.7\n", read(os.path.join(PLUGIN, "pkg-descr")))
+        self.assertRegex(read(os.path.join(PLUGIN, "Makefile")), r"PLUGIN_VERSION=\s+0\.7\.1\n")
+        self.assertIn("\n0.7.1\n", read(os.path.join(PLUGIN, "pkg-descr")))
         from lib.version import VERSION
-        self.assertEqual(VERSION, "0.7")     # version écrite par le démon = paquet
+        self.assertEqual(VERSION, "0.7.1")     # version écrite par le démon = paquet
 
     def test_option_defaults_are_options(self):
         """Le défaut de chaque OptionField fait partie de ses OptionValues."""

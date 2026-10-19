@@ -21,6 +21,12 @@ WWW: https://github.com/spaghiari/Opnsense-APPALIAS
 Plugin Changelog
 ================
 
+0.7.1
+
+* Applications grid: the rules column shows a short rule count with a
+  tooltip instead of the full list; a single v2fly badge; a click on a row
+  opens the editor; colors follow the theme (dark theme supported).
+
 0.7
 
 * Proactive resolution (on by default, also after an upgrade): the daemon

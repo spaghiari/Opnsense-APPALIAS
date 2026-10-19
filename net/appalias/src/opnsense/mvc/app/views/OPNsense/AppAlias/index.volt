@@ -32,10 +32,13 @@
     .appalias-discovery { color: #999; }
     .appalias-group-head { margin-top: 12px; }
 
+    /* Colonne « rules » de la grille : compteur court sur une ligne, lignes cliquables */
+    .appalias-grid-count { white-space: nowrap; }
+    #grid-apps tbody tr, #grid-apps .tabulator-row { cursor: pointer; }
     /* Lignes flexibles : éléments centrés verticalement, espacés sans marges */
     .appalias-flex { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
     .appalias-push { margin-left: auto; }
-    .appalias-small { color: #777; font-size: 12px; }
+    .appalias-small { color: inherit; opacity: .7; font-size: 12px; }
     .appalias-tabular { font-variant-numeric: tabular-nums; white-space: nowrap; }
     select.form-control.appalias-select-xs {
         display: inline-block; width: auto; height: 22px; padding: 0 4px;
@@ -50,11 +53,12 @@
     /* Bandeau : compteurs à gauche, boutons à droite */
     .appalias-toolbar {
         display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px;
-        margin: 10px 0; padding: 8px 12px; background: #f7f7f7; border: 1px solid #e5e5e5; border-radius: 3px;
+        margin: 10px 0; padding: 8px 12px; background: rgba(128, 128, 128, .12); border: 1px solid rgba(128, 128, 128, .35); border-radius: 3px;
     }
     .appalias-stats { display: flex; flex-wrap: wrap; min-width: 0; align-items: baseline; gap: 4px 16px; }
-    .appalias-stat { color: #777; white-space: nowrap; }
-    .appalias-stat strong { color: #333; font-size: 14px; margin-right: 4px; font-variant-numeric: tabular-nums; }
+    .appalias-stat { color: inherit; white-space: nowrap; }
+    .appalias-stat-label { opacity: .7; }
+    .appalias-stat strong { color: inherit; font-size: 14px; margin-right: 4px; font-variant-numeric: tabular-nums; }
     .appalias-toolbar-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; }
 
     /* Cartes du catalogue : même hauteur par ligne, bouton en bas */
@@ -70,7 +74,7 @@
     /* Galerie « Popular apps » : titre de catégorie à gauche, boutons à droite */
     .appalias-popular {
         display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 6px 12px;
-        align-items: start; padding: 6px 0; border-bottom: 1px solid #eee;
+        align-items: start; padding: 6px 0; border-bottom: 1px solid rgba(128, 128, 128, .25);
     }
     .appalias-popular:last-child { border-bottom: 0; }
     .appalias-popular-title { font-weight: 600; line-height: 30px; }
@@ -129,10 +133,10 @@
     /* Section « Automatic updates » */
     .appalias-follow-entry {
         display: grid; grid-template-columns: 140px minmax(0, 1fr) auto;
-        align-items: center; gap: 4px 12px; padding: 6px 0; border-bottom: 1px solid #eee;
+        align-items: center; gap: 4px 12px; padding: 6px 0; border-bottom: 1px solid rgba(128, 128, 128, .25);
     }
     .appalias-follow-entry:last-child { border-bottom: 0; }
-    .appalias-follow-entry details > summary { cursor: pointer; color: #777; font-size: 12px; }
+    .appalias-follow-entry details > summary { cursor: pointer; color: inherit; opacity: .7; font-size: 12px; }
     .appalias-follow-rules { margin-top: 4px; font-size: 12px; }
     .appalias-follow-rules div { word-break: break-all; }
 
@@ -147,7 +151,6 @@
     @media (max-width: 767px) {
         .appalias-toolbar { gap: 8px; }
         .appalias-toolbar-actions { flex-wrap: wrap; }
-        .appalias-grid-rules { min-width: 0; }
         .appalias-toolbar-actions { margin-left: 0; }
         .appalias-popular { grid-template-columns: 1fr; }
         .appalias-popular-title { line-height: normal; }
@@ -160,6 +163,8 @@
     $( document ).ready(function () {
         const T = {
             rules: "{{ lang._('rules')|escape_js }}",
+            ruleOne: "{{ lang._('rule')|escape_js }}",
+            andMore: "{{ lang._('... and %d more')|escape_js }}",
             includes: "{{ lang._('includes:')|escape_js }}",
             preview: "{{ lang._('Preview')|escape_js }}",
             broken: "{{ lang._('Broken list (not importable):')|escape_js }}",
@@ -381,24 +386,33 @@
             options: {
                 formatters: {
                     rules: function (column, row) {
+                        // compteur court ; la liste complete reste dans l'infobulle (5 regles au plus)
                         let parts = splitList(row[column.id]);
-                        let out = $('<span class="appalias-grid-rules"></span>');
-                        parts.forEach(function (rule, i) {
-                            let last = i === parts.length - 1;
-                            out.append(document.createTextNode(rule + (last ? '' : ',')));
-                            if (!last) {
-                                out.append($('<wbr>'));
-                                out.append(document.createTextNode(' '));
+                        let n = parts.length;
+                        let out = $('<span class="appalias-grid-count"></span>')
+                            .text(n + ' ' + (n === 1 ? T.ruleOne : T.rules));
+                        if (n === 0) {
+                            out.addClass('text-muted');
+                        } else {
+                            let tip = parts.slice(0, 5).join(', ');
+                            if (n > 5) {
+                                tip += ' ' + T.andMore.replace('%d', String(n - 5));
                             }
-                        });
+                            out.attr('title', tip);
+                        }
                         return out.prop('outerHTML');
                     },
                     appname: function (column, row) {
                         let out = $('<span class="appalias-flex"></span>').append($('<span></span>').text(row.name || ''));
                         let refs = splitList(row.catalog_refs);
-                        refs.forEach(function (ref) {
-                            out.append($('<span class="label label-info"></span>').text('v2fly:' + ref));
-                        });
+                        if (refs.length > 0) {
+                            // un seul badge v2fly par application ; les references dans l'infobulle
+                            out.append(
+                                $('<span class="label label-info"></span>')
+                                    .attr('title', refs.join(', '))
+                                    .text('v2fly' + (refs.length > 1 ? ' (' + refs.length + ')' : ''))
+                            );
+                        }
                         let follow = refs.length > 0 && isOn(row.catalog_follow);
                         if (follow) {
                             out.append($('<span class="label label-primary"></span>').attr('title', T.autoHelp).text(T.auto));
@@ -464,6 +478,27 @@
 
         $("#grid-apps").on('loaded.rs.jquery.bootgrid', function () {
             gridLoaded = true;
+        });
+        // Clic sur une ligne : ouvre le dialogue d'edition (bouton edit de la ligne).
+        // Delegation unique sur #grid-apps (survit aux rechargements), valable pour
+        // jQuery-bootgrid (tr) comme pour Tabulator (.tabulator-row).
+        $('#grid-apps').off('click.appaliasrow').on('click.appaliasrow', 'tr, .tabulator-row', function (e) {
+            // Selection de texte a la souris : pas d'ouverture
+            if (String(window.getSelection()) !== '') {
+                return;
+            }
+            // En-tete, liens, boutons, champs, bascule, cellules de selection / commandes
+            if ($(e.target).closest('thead, .tabulator-header, a, button, input, select, textarea, label, ' +
+                '.command-toggle, .command-edit, .command-copy, .command-delete, .command-info, .bootgrid-tooltip, ' +
+                'td.select-cell, td.commands, td:has(.command-toggle), .tabulator-cell[tabulator-field="commands"], ' +
+                '.tabulator-cell[tabulator-field="select"], .tabulator-row-header, .tabulator-cell.tabulator-row-handle'
+            ).length) {
+                return;
+            }
+            let $edit = $(this).find('.command-edit').first();
+            if ($edit.length) {
+                $edit.trigger('click');
+            }
         });
 
         mapDataToFormUI({'frm_general_settings': "/api/appalias/settings/get"}).done(function () {
@@ -1674,11 +1709,11 @@
                 let stat = function (value, label, labelFirst) {
                     let item = $('<span class="appalias-stat"></span>');
                     if (labelFirst) {
-                        item.append(document.createTextNode(label + ' '));
+                        item.append($('<span class="appalias-stat-label"></span>').text(label + ' '));
                     }
                     item.append($('<strong></strong>').text(String(value)));
                     if (!labelFirst) {
-                        item.append(document.createTextNode(label));
+                        item.append($('<span class="appalias-stat-label"></span>').text(label));
                     }
                     stats.append(item);
                 };
@@ -1867,9 +1902,9 @@
                     <div id="catalog-follow-log"></div>
                 </div>
             </div>
-            <h3>{{ lang._('Popular apps') }}</h3>
+            <h3 class="appalias-title">{{ lang._('Popular apps') }}</h3>
             <div id="catalog-popular"></div>
-            <h3>{{ lang._('Search the catalog') }}</h3>
+            <h3 class="appalias-title">{{ lang._('Search the catalog') }}</h3>
             <div class="form-group">
                 <input type="text" id="catalog-q" class="form-control" maxlength="64" autocomplete="off"
                        placeholder="{{ lang._('Search a list (netflix) or a domain (nflxvideo.net)') }}"/>
