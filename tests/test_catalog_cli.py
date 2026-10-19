@@ -103,8 +103,9 @@ class CatalogCliTests(unittest.TestCase):
         self.assertEqual(rules["domain:cloudfront.net"]["refused"], "shared")
         self.assertTrue(rules["domain:cloudfront.net"]["shared"])
         self.assertIsNone(rules["domain:d123.cloudfront.net"]["refused"])
-        self.assertTrue(rules["domain:d123.cloudfront.net"]["shared"])
-        self.assertTrue(rules["full:edge.akamaized.net"]["shared"])
+        # sous-domaine dédié : non marqué « partagé »
+        self.assertFalse(rules["domain:d123.cloudfront.net"]["shared"])
+        self.assertFalse(rules["full:edge.akamaized.net"]["shared"])
         self.assertIsNone(rules["full:edge.akamaized.net"]["refused"])
         self.assertFalse(rules["domain:app.example"]["shared"])
         self.assertEqual(rules["domain:ads.app.example"]["attrs"], ["ads"])

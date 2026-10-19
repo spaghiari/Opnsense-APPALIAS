@@ -142,7 +142,8 @@ def skip_reason(kind, value, platforms, ignored):
         return "refused"
     if kind in (v2fly.KIND_DOMAIN, v2fly.KIND_FULL):
         name = shared.normalize(value)
-        if shared.touches(name, platforms):
+        # « tld » (full:com) comme « shared » : exclus du suivi
+        if shared.excluded(kind, name, platforms) is not None:
             return "shared"
         if ignored is not None and ignored.match(name):
             return "ignored"

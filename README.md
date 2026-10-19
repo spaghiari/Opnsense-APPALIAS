@@ -89,6 +89,31 @@ Installation par copie, publication et maintenance : voir
    domaines, réseaux CIDR éventuels), puis **Apply**. L'alias `APP_<NOM>`
    apparaît dans *Pare-feu > Alias*.
 
+4. **Résolution proactive** (activée par défaut, y compris après une mise à
+   jour vers 0.7) : en complément du relais, le démon résout lui-même, à
+   intervalle régulier, les noms des applications activées, pour que leurs
+   alias soient déjà remplis avant que le premier client ne les demande.
+   - Elle sonde les règles `full:x` (le nom `x`) et `domain:x` (`x` et
+     `www.x`, selon *Proactive prefixes*), en A et en AAAA selon les
+     familles de l'application. Les réponses passent par le même chemin
+     que celles du relais (exclusions, plafonds, expiration des entrées).
+   - Réglages (*Settings*) : *Proactive resolution* (activation générale),
+     intervalle minimal (300 s par défaut) et maximal (3600 s), préfixes
+     (`www` par défaut, 8 au plus). L'intervalle maximal reste sous
+     `ttl_min + ttl_margin`, sinon les entrées expireraient entre deux
+     passes (valeur ramenée ou fonction désactivée, avec un
+     avertissement). Chaque nom est ensuite replanifié selon le TTL de la
+     réponse, borné par ces intervalles, avec un léger décalage aléatoire ;
+     les échecs et les réponses vides reculent progressivement.
+   - Par application : case *Proactive resolution* (cochée par défaut,
+     pastille dans la grille). Une application désactivée n'est pas sondée.
+   - Charge DNS sortante : environ N noms × 2 types (A et AAAA) par
+     intervalle, N étant le nombre de noms sondés (256 par application et
+     5000 au total au plus), étalés dans le temps, 2 sondes simultanées au
+     plus.
+   - Compteurs dans `metrics.json` : envoyées, réussies, vides, échouées,
+     adresses ajoutées.
+
 L'interface du plugin est en anglais (textes source OPNsense) ; les
 traductions viennent du projet de traduction d'OPNsense.
 
@@ -133,38 +158,47 @@ pour tout chiffrer. Dans *Settings*, recommandé avec Quad9 :
 
 L'onglet *Catalog* cherche dans un instantané embarqué de
 [v2fly/domain-list-community](https://github.com/v2fly/domain-list-community)
-(commit épinglé, empreinte vérifiée), rafraîchi chaque jour depuis GitHub
-(voir *Mise à jour du catalogue*), par nom de liste (`netflix`) ou par domaine (`nflxvideo.net`). L'aperçu
-regroupe les règles par type et laisse choisir celles à importer, dans une
-nouvelle application ou par fusion dans une application existante :
+(commit épinglé, empreinte vérifiée), rafraîchi depuis GitHub (vérification
+horaire, voir *Mise à jour du catalogue*), par nom de liste (`netflix`) ou
+par domaine (`nflxvideo.net`). L'ajout est un seul geste : choisir
+l'application, saisir son nom et cliquer **Add**, sans case à cocher. Le
+serveur calcule la sélection par défaut :
 
 - les règles marquées `@ads` et celles qui touchent une plateforme partagée
-  (CDN, cloud) sont décochées par défaut ;
-- une règle `domain:` sur une plateforme partagée entière, sur l'un de ses
-  parents ou sur un domaine de premier niveau seul est refusée (utiliser
-  `full:` ou un sous-domaine dédié) ; la liste se complète dans les réglages
-  (*Extra shared platforms*) ;
-- l'import enregistre l'application, sans rien appliquer : il faut toujours
-  cliquer sur **Apply**.
+  (CDN, cloud) en sont exclues ;
+- une règle `domain:` sur un domaine parent entier d'une plateforme partagée
+  (`googleapis.com`…) ou sur un domaine de premier niveau seul est refusée
+  (utiliser `full:` ou un sous-domaine dédié) ; les sous-domaines dédiés
+  d'une plateforme (`youtubei.googleapis.com`, `yt3.googleusercontent.com`)
+  sont en revanche inclus. Les espaces multi-locataires (`s3.amazonaws.com`,
+  `blob.core.windows.net`, `storage.googleapis.com`, `github.io`,
+  `workers.dev`) ne peuvent pas être pris en bloc ; la liste se complète dans
+  les réglages (*Extra shared platforms*) ;
+- l'application créée suit le catalogue (voir ci-dessous) et la
+  configuration est appliquée automatiquement après l'ajout, sans clic sur
+  **Apply**.
 
 ### Suivi automatique du catalogue
 
 Une application créée ou fusionnée depuis le catalogue **suit le catalogue**
 (case *Follow catalog automatically* de l'application, pastille `auto` dans la
 grille). Après chaque mise à jour réussie du catalogue (téléchargement
-quotidien, **Update catalog now**, mise à jour du plugin avec un instantané
+horaire, **Update catalog now**, mise à jour du plugin avec un instantané
 embarqué plus récent) :
 
 - les nouvelles règles de ses listes sont ajoutées, les règles retirées du
-  catalogue sont retirées, puis tout est appliqué sans clic (export,
-  synchronisation des alias, zones d'Unbound, rechargement du relais), en
-  passant par le modèle et ses validations ;
+  catalogue sont retirées, puis tout est appliqué sans clic (export complet,
+  zones d'Unbound, rechargement du relais, sans recharger le filtre
+  pare-feu), en passant par le modèle et ses validations. Si le plugin est
+  désactivé, rien n'est appliqué : la configuration est enregistrée et
+  reste annulable ;
 - les règles ajoutées à la main ne sont jamais touchées ; les règles
   décochées à l'import, les noms de plateformes partagées, les règles
   `keyword:` / `regexp:`, les règles ignorées par la découverte et les règles
   `@ads` exclues par la référence (`netflix@-ads`) ne sont jamais ajoutées ;
-- au-delà de 1000 règles pour une application, rien n'est appliqué pour elle
-  et l'événement est journalisé ; une application en erreur n'est pas
+- au-delà de 1000 règles pour une application, rien n'est appliqué pour elle,
+  l'événement est journalisé et la grille affiche l'avertissement
+  « Catalog update paused » ; une application en erreur n'est pas
   enregistrée, les autres le sont ;
 - chaque changement est noté dans `/var/db/appalias/catalog_follow.json`
   (200 derniers) et dans le journal système (niveau info). La section
@@ -189,16 +223,22 @@ l'onglet *Discovery*.
 
 ### Mise à jour du catalogue
 
-Par défaut, le pare-feu contacte GitHub **une fois par jour** (à une heure
-tirée du nom d'hôte, entre 1 h et 5 h) et juste après l'installation ou la
-mise à jour du plugin, pour télécharger le dernier commit de
-v2fly/domain-list-community. Le bouton **Update catalog now** de l'onglet
-*Catalog* le fait tout de suite ; **Revert to embedded** revient à
-l'instantané du paquet. L'encadré de l'onglet indique la provenance
-(« Embedded snapshot » ou « Downloaded », date et commit).
+Par défaut, le pare-feu vérifie GitHub **toutes les heures** (à une minute
+tirée du nom d'hôte) et juste après l'installation ou la mise à jour du
+plugin. Chaque vérification coûte un appel API ; l'archive de
+v2fly/domain-list-community n'est téléchargée que si le dernier commit a
+changé. La fréquence se règle dans *Settings* : `hourly` (défaut), `daily`
+ou `manual`. À la mise à jour, les installations en `daily` passent à
+`hourly`. Le bouton **Update catalog now** de l'onglet *Catalog* vérifie et
+télécharge tout de suite ; **Revert to embedded** revient à l'instantané du
+paquet. L'encadré de l'onglet indique la provenance (« Embedded snapshot »
+ou « Downloaded », date et commit).
 
 - **Ce qui s'applique tout seul** : seulement les applications qui suivent le
-  catalogue (voir *Suivi automatique du catalogue*). Pour les autres, les
+  catalogue (voir *Suivi automatique du catalogue*). L'application se fait en
+  export complet, **sans recharger le filtre pare-feu**, et **pas du tout
+  quand le plugin est désactivé** : la configuration est alors seulement
+  enregistrée (annulable). Pour les autres applications, les
   nouvelles règles apparaissent dans les « catalog updates », à cocher puis
   **Apply**.
 - **Sécurité** : HTTPS seulement, vers `api.github.com` et
@@ -210,7 +250,8 @@ l'instantané du paquet. L'encadré de l'onglet indique la provenance
   présentes, aucune liste cassée) ; sinon le précédent est gardé et l'erreur
   journalisée. Le catalogue téléchargé n'est employé que s'il est intègre et
   plus récent que l'instantané embarqué.
-- **Vie privée** : GitHub voit l'adresse IP du pare-feu une fois par jour.
+- **Vie privée** : GitHub voit l'adresse IP du pare-feu à chaque
+  vérification (une fois par heure par défaut).
 - **Hors ligne** : décocher *Download catalog updates* (onglet *Settings*)
   revient au mode embarqué, sans aucun accès réseau : le catalogue ne change
   alors qu'avec les mises à jour du plugin.
@@ -281,6 +322,11 @@ immédiat et la bascule aussi.
   Unbound rafraîchit les entrées populaires avant leur expiration, la
   réponse passe par le relais et l'alias reste à jour sans faire attendre le
   client.
+- La résolution proactive ajoute du trafic DNS sortant (environ N noms × 2
+  types par intervalle, voir *Configuration*) ; ses compteurs (envoyées,
+  réussies, vides, échouées, adresses ajoutées) sont dans `metrics.json`.
+  Pour la réduire : allonger l'intervalle minimal, retirer des préfixes ou
+  décocher la case des applications qui n'en ont pas besoin.
 - Ne **pas** activer **Serve Expired** : Unbound pourrait rendre une adresse
   expirée, déjà sortie de l'alias, sans passer par le relais ; le trafic vers
   cette adresse n'est alors plus couvert par vos règles.
@@ -296,8 +342,18 @@ immédiat et la bascule aussi.
   prochaine résolution.
 - **Écoute** : laisser le relais sur `127.0.0.1` (défaut). Ouvert au LAN, un
   client pourrait remplir les alias jusqu'au plafond par application.
-- **État actuel (0.6)** : catalogue v2fly (rafraîchi chaque jour, option)
-  suivi automatiquement par les applications importées, DNS over TLS vers
+- **Résolution proactive** : elle ne couvre ni `regexp:` ni `keyword:`, ni les
+  noms dynamiques (par exemple `rN---sn-xxx.googlevideo.com`), qui restent
+  couverts par le relais, ni les plateformes partagées (jamais sondées). Les
+  IP de CDN dépendent de l'emplacement du pare-feu : la sonde peut obtenir
+  des adresses différentes de celles que vos clients reçoivent (biais
+  géographique). Elle ne remplace pas le relais, qui reste la source
+  principale pour les adresses réellement servies aux clients. Vider les
+  caches (Unbound ou clients) ne change rien à son fonctionnement : le démon
+  interroge directement l'amont.
+- **État actuel (0.7)** : catalogue v2fly (vérifié chaque heure, option)
+  suivi automatiquement par les applications importées, résolution
+  proactive des noms `domain:` / `full:`, DNS over TLS vers
   l'amont, découverte (option), état du relais avec sa version en tête de
   page ; les sources ASN ne sont pas encore utilisées et les règles
   `keyword:` / `regexp:` restent des règles de découverte.

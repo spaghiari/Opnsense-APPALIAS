@@ -83,6 +83,53 @@ class RaceTests(unittest.TestCase):
         self.assertIn(IP, fake.contents("APP_T"))
         self.assertEqual([op for op, _t, _a in fake.calls], ["replace", "add"])
 
+    def test_disable_during_pending_add(self):
+        fake = SlowOps(slow={"replace"})
+        relay = make_relay(fake)
+        raw, key = response()
+        disabled = cfgmod.from_dict({
+            "general": {"upstream_address": "127.0.0.1"},
+            "apps": [{"name": "T", "domains": ["example.com"], "enabled": False}]})
+
+        async def scenario():
+            holder = asyncio.ensure_future(relay._lock("APP_T").acquire())
+            await holder                                  # verrou tenu : l'add va attendre
+            add = asyncio.ensure_future(relay.process_response(raw, expect=key))
+            await asyncio.sleep(0.01)
+            self.assertIn(("APP_T", IP), relay._inflight)
+            relay._apply_config(disabled)                 # rechargement : application désactivée
+            relay._lock("APP_T").release()
+            await asyncio.wait_for(add, 2)                # la future inflight est bien résolue
+            await relay.restore_tables()
+
+        asyncio.run(scenario())
+        self.assertNotIn(IP, fake.contents("APP_T"))
+        self.assertFalse(relay.state.is_known("APP_T", IP, time.time()))
+        self.assertEqual(fake.ops("add"), [])
+        self.assertEqual(relay._inflight, {})
+
+    def test_exclusion_during_pending_add(self):
+        fake = SlowOps()
+        relay = make_relay(fake)
+        raw, key = response()
+        excluded = cfgmod.from_dict({
+            "general": {"upstream_address": "127.0.0.1", "exclude_networks": ["192.0.2.0/24"]},
+            "apps": [{"name": "T", "domains": ["example.com"]}]})
+
+        async def scenario():
+            await relay._lock("APP_T").acquire()
+            add = asyncio.ensure_future(relay.process_response(raw, expect=key))
+            await asyncio.sleep(0.01)
+            relay._apply_config(excluded)                 # exclusion ajoutée pendant l'attente
+            relay._lock("APP_T").release()
+            await asyncio.wait_for(add, 2)
+
+        asyncio.run(scenario())
+        self.assertNotIn(IP, fake.contents("APP_T"))
+        self.assertFalse(relay.state.is_known("APP_T", IP, time.time()))
+        self.assertEqual(fake.ops("add"), [])
+        self.assertEqual(relay._inflight, {})
+
     def test_reload_includes_inflight(self):
         fake = SlowOps(slow={"add"})
         relay = make_relay(fake)
@@ -174,6 +221,76 @@ class MismatchTests(unittest.TestCase):
         self.assertEqual(fake.calls, [])
         asyncio.run(relay.process_response(raw, expect=key))
         self.assertEqual(len(fake.ops("add")), 1)
+
+
+class _FakeObserver:
+    def __init__(self):
+        self.calls = []
+
+    def observe(self, *args):
+        self.calls.append(args)
+
+
+class OptionsTests(unittest.TestCase):
+    def test_defaults_observe_hit_measure(self):
+        fake = FakePf()
+        relay = make_relay(fake)
+        relay._observer = _FakeObserver()
+        raw, key = response()
+
+        async def fake_udp(query, host, port):
+            return raw
+
+        relay._udp_exchange = fake_udp
+        asyncio.run(relay.process_response(raw, expect=key))
+        self.assertEqual(len(relay._observer.calls), 1)
+        self.assertIn("APP_T", relay.state.last_hit)
+        timing = {}
+        self.assertEqual(asyncio.run(relay.forward(build_query("www.example.com"), "udp", timing)), raw)
+        self.assertIn("upstream_ms", timing)
+        self.assertEqual(len(relay.metrics.upstreams), 1)
+
+    def test_observe_false(self):
+        fake = FakePf()
+        relay = make_relay(fake)
+        relay._observer = _FakeObserver()
+        raw, key = response()
+        asyncio.run(relay.process_response(raw, expect=key, observe=False))
+        self.assertEqual(relay._observer.calls, [])
+        self.assertIn(IP, fake.contents("APP_T"))
+
+    def test_hit_false(self):
+        fake = FakePf()
+        relay = make_relay(fake)
+        relay.state.hit("APP_T", 123.0)
+        raw, key = response()
+        asyncio.run(relay.process_response(raw, expect=key, hit=False, source="proactive"))
+        self.assertEqual(relay.state.last_hit["APP_T"], 123.0)
+        self.assertIn(IP, fake.contents("APP_T"))
+
+    def test_unknown_source_same_behavior(self):
+        fake = FakePf()
+        relay = make_relay(fake)
+        raw, key = response()
+        asyncio.run(relay.process_response(raw, expect=key, source="autre"))
+        self.assertIn(IP, fake.contents("APP_T"))
+        self.assertIn("APP_T", relay.state.last_hit)
+
+    def test_measure_false(self):
+        relay = make_relay(FakePf())
+        raw, _key = response()
+
+        async def fake_udp(query, host, port):
+            return raw
+
+        relay._udp_exchange = fake_udp
+        timing = {}
+        resp = asyncio.run(relay.forward(build_query("www.example.com"), "udp", timing,
+                                         measure=False))
+        self.assertEqual(resp, raw)
+        self.assertEqual(relay.metrics.upstreams, {})
+        self.assertEqual(relay.metrics.version, 0)
+        self.assertIn("upstream_ms", timing)
 
 
 if __name__ == "__main__":

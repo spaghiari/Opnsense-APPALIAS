@@ -49,6 +49,12 @@ réponse, un simple append dans une file bornée ; agrégation, persistance
 (discovery.json) et mode Learn dans des tâches périodiques. Rien n'est
 jamais ajouté à une application par la découverte.
 
+Résolution proactive (lib/proactive.py) : une tâche de fond résout elle-même,
+à intervalle régulier, les noms des applications activées (au plus
+PROACTIVE_MAX_CONCURRENT sondes simultanées, PROACTIVE_RATE par seconde). Les
+réponses passent par process_response(observe=False, hit=False) : jamais de
+découverte, jamais de « dernier usage », jamais de latence client.
+
 Version : le démon écrit la version de son code, son PID et son heure de
 démarrage dans metrics.json dès le démarrage (status.py la compare à la
 version installée).
@@ -66,6 +72,7 @@ import asyncio
 import ipaddress
 import logging
 import os
+import random
 import signal
 import struct
 import sys
@@ -78,6 +85,7 @@ from lib import discovery as discmod  # noqa: E402
 from lib import dnswire  # noqa: E402
 from lib import dot  # noqa: E402
 from lib import metrics  # noqa: E402
+from lib import proactive  # noqa: E402
 from lib import shared  # noqa: E402
 from lib.matcher import Matcher  # noqa: E402
 from lib.pftable import PfError, PfTable, normalize_entry  # noqa: E402
@@ -97,6 +105,12 @@ SAVE_INTERVAL = 60.0
 PF_COOLDOWN = 30.0
 MAX_INFLIGHT_QUERIES = 512
 MAX_TCP_CLIENTS = 128
+PROACTIVE_MAX_CONCURRENT = 2     # sondes proactives simultanées au plus
+PROACTIVE_RATE = 10.0            # sondes lancées par seconde au plus
+PROACTIVE_SLEEP_MIN = 1.0        # sommeil de la boucle (s), hors arriéré
+PROACTIVE_SLEEP_MAX = 30.0
+PROACTIVE_DEFER_JITTER = 5.0     # gigue ajoutée à un report (cooldown pfctl), en s
+PROACTIVE_RETRY_DELAY = 1.0      # report après un rechargement survenu pendant la sonde
 
 _UNCHECKED = object()  # process_response sans contrôle de la question (appel direct)
 
@@ -233,10 +247,18 @@ class Relay:
                                            os.path.basename(discmod.DISCOVERY_PATH))
         self.ctl_path = discmod.ctl_path_for(self.discovery_path)
         self._discovery_purged = 0.0
+        self._config_gen = 0     # incrémenté à chaque configuration appliquée
+        self.sched = None        # proactive.Scheduler
+        self._proactive_targets = {}   # (nom, qtype) -> {tables}
+        self._proactive_wake = None    # asyncio.Event, créé dans la boucle
+        self._proactive_active = 0     # sondes en cours
+        self._proactive_task = None
+        self._proactive_rng = random.Random()
         self._apply_config(cfg)
 
     # -- configuration --
     def _apply_config(self, cfg):
+        self._config_gen += 1
         self.cfg = cfg
         self.apps = {a.table: a for a in cfg.apps}
         self.matcher = Matcher({a.table: a.domains for a in cfg.apps if a.enabled},
@@ -244,6 +266,25 @@ class Relay:
         self._update_pools(cfg)
         self.metrics.retain({self._upstream_key(u) for u in cfg.upstreams})
         self._update_discovery(cfg)
+        self._update_proactive(cfg)
+
+    def _update_proactive(self, cfg):
+        """Reconstruit les cibles proactives ; Scheduler recréé si les intervalles changent."""
+        self._proactive_targets = (proactive.targets(cfg, self.matcher, self.matcher.platforms)
+                                   if cfg.proactive_enabled else {})
+        sched = self.sched
+        if (sched is None or sched.interval_min != cfg.proactive_interval_min
+                or sched.interval_max != max(cfg.proactive_interval_max,
+                                             cfg.proactive_interval_min)):
+            sched = self.sched = proactive.Scheduler(
+                self.clock, cfg.proactive_interval_min, cfg.proactive_interval_max,
+                self._proactive_rng)
+        sched.load(self._proactive_targets)
+        self._proactive_notify()
+
+    def _proactive_notify(self):
+        if self._proactive_wake is not None:
+            self._proactive_wake.set()
 
     def _update_discovery(self, cfg):
         """Active, règle ou arrête la découverte selon la configuration.
@@ -282,9 +323,10 @@ class Relay:
     def _upstream_key(upstream):
         return "%s@%d" % (upstream.host, upstream.port)
 
-    def _measured(self, upstream, start, timing):
+    def _measured(self, upstream, start, timing, measure=True):
         ms = (time.monotonic() - start) * 1000.0
-        self.metrics.add_upstream(self._upstream_key(upstream), ms)
+        if measure:
+            self.metrics.add_upstream(self._upstream_key(upstream), ms)
         if timing is not None:
             timing["upstream_ms"] = ms
 
@@ -412,10 +454,14 @@ class Relay:
                 return dnswire.fit_udp(query, resp)
             return resp
 
-    async def forward(self, query, proto, timing=None):
-        """Réponse du premier amont qui répond, ou None ; timing["upstream_ms"] si fourni."""
+    async def forward(self, query, proto, timing=None, measure=True):
+        """Réponse du premier amont qui répond, ou None ; timing["upstream_ms"] si fourni.
+
+        measure=False : la latence amont n'entre pas dans les métriques (requêtes
+        qui ne viennent pas d'un client) ; timing est quand même renseigné.
+        """
         if self.cfg.upstream_protocol == "dot":
-            return await self._forward_dot(query, timing)
+            return await self._forward_dot(query, timing, measure)
         for upstream in self.cfg.upstreams:
             host, port, _name = upstream
             start = time.monotonic()
@@ -426,16 +472,16 @@ class Relay:
                 else:
                     resp = await asyncio.wait_for(self._udp_exchange(query, host, port),
                                                   self.udp_timeout)
-                self._measured(upstream, start, timing)
+                self._measured(upstream, start, timing, measure)
                 return resp
             except (asyncio.TimeoutError, OSError, ConnectionError,
                     asyncio.IncompleteReadError) as exc:
                 log.debug("amont %s:%s (%s) sans réponse : %r", host, port, proto, exc)
                 continue
-        log.warning("aucun amont n'a répondu (%s)", proto)
+        self._warn_limited(("plain", "all"), "aucun amont n'a répondu (%s)" % proto)
         return None
 
-    async def _forward_dot(self, query, timing=None):
+    async def _forward_dot(self, query, timing=None, measure=True):
         """Amonts DoT dans l'ordre ; jamais de repli en clair."""
         for upstream in self.cfg.upstreams:
             pool = self._pools.get(upstream)
@@ -444,7 +490,7 @@ class Relay:
             start = time.monotonic()
             try:
                 resp = await asyncio.wait_for(pool.exchange(query), self.dot_timeout)
-                self._measured(upstream, start, timing)
+                self._measured(upstream, start, timing, measure)
                 return resp
             except Exception as exc:  # TLS, délai, connexion : amont suivant
                 self._dot_failed(upstream, exc)
@@ -516,7 +562,8 @@ class Relay:
             writer.close()
 
     # -- cœur : ajout des IP --
-    async def process_response(self, raw, expect=_UNCHECKED, upstream_ms=None):
+    async def process_response(self, raw, expect=_UNCHECKED, upstream_ms=None, *,
+                               observe=True, hit=True, source="relay"):
         """Ajoute les IP de la réponse aux tables concernées.
 
         expect = (id, qname) de la requête (dnswire.question_key) : si la
@@ -524,6 +571,11 @@ class Relay:
         réponse quand même). expect=None (question de la requête illisible) :
         rien n'est ajouté. Sans expect : pas de contrôle. upstream_ms : temps
         de l'amont, repris dans la ligne de journal des ajouts.
+
+        Options (défauts = comportement du relais) : observe=False n'alimente
+        pas la découverte ; hit=False ne met pas à jour le « dernier usage »
+        des tables ; source est une simple étiquette pour les journaux
+        ("relay" ou "proactive"), une valeur inconnue ne change rien.
         """
         if expect is None:
             log.debug("question de la requête illisible : réponse transmise sans traitement")
@@ -539,7 +591,7 @@ class Relay:
         names = chain if self.cfg.follow_cname else [resp.qname]
         tables = self.matcher.match(names)
         observer = self._observer
-        if observer is not None:
+        if observer is not None and observe:
             # Découverte : un append, rien d'autre (ni calcul, ni disque, ni attente).
             observer.observe(resp.qname, chain, resp.answers, self.clock(), tables)
         if not tables:
@@ -552,7 +604,8 @@ class Relay:
             app = self.apps.get(table)
             if app is None or not app.enabled:
                 continue
-            self.state.hit(table, now)
+            if hit:
+                self.state.hit(table, now)
             new = []
             for ip, ttl in addrs:
                 if not self._dns_entry_ok(app, ip):
@@ -583,28 +636,171 @@ class Relay:
             fut = asyncio.get_running_loop().create_future()
             for ipstr, expiry in new:
                 self._inflight[(table, ipstr)] = (fut, expiry)
-            jobs.append(self._add(table, new, fut, upstream_ms))
+            jobs.append(self._add(table, new, fut, upstream_ms, self._config_gen, source))
         if jobs or waits:
             await asyncio.gather(*jobs, *waits, return_exceptions=True)
 
-    async def _add(self, table, new, fut, upstream_ms=None):
-        ips = [ip for ip, _ in new]
+    async def _add(self, table, new, fut, upstream_ms=None, gen=None, source="relay"):
         start = time.monotonic()
+        queued = [ip for ip, _ in new]   # liste d'origine : _inflight se nettoie sur celle-ci
         try:
             async with self._lock(table):
+                # Configuration relue sous le verrou : un rechargement a pu désactiver
+                # ou supprimer l'application, ou exclure des IP, pendant l'attente.
+                app = self.apps.get(table)
+                if app is None or not app.enabled:
+                    log.debug("%s : ajout abandonné (application absente ou désactivée)", table)
+                    return
+                if gen is not None and gen != self._config_gen:
+                    kept = []
+                    for ipstr, expiry in new:
+                        try:
+                            ok = self._dns_entry_ok(app, ipaddress.ip_address(ipstr))
+                        except ValueError:
+                            ok = False
+                        if ok:
+                            kept.append((ipstr, expiry))
+                    if len(kept) != len(new):
+                        log.debug("%s : %d IP écartées par la nouvelle configuration",
+                                  table, len(new) - len(kept))
+                    new = kept
+                    if not new:
+                        return
+                ips = [ip for ip, _ in new]
                 if await self._pf(table, self.pf.add, ips):
                     pf_ms = (time.monotonic() - start) * 1000.0
                     self.metrics.add_pf(pf_ms)
                     for ipstr, expiry in new:
                         self.state.set(table, ipstr, expiry)
-                    log.info("%s : ajout de %d IP (amont %s, pf %d ms) : %s", table, len(ips),
+                    if source == "proactive":
+                        self.metrics.add_proactive("added", len(ips))
+                    log.info("%s : ajout de %d IP (amont %s, pf %d ms%s) : %s", table, len(ips),
                              "%d ms" % upstream_ms if upstream_ms is not None else "-",
-                             pf_ms, " ".join(ips))
+                             pf_ms, ", source %s" % source if source != "relay" else "",
+                             " ".join(ips))
         finally:
-            for ipstr, _ in new:
+            for ipstr in queued:
                 self._inflight.pop((table, ipstr), None)
             if not fut.done():
                 fut.set_result(None)
+
+    # -- résolution proactive --
+    async def proactive_loop(self):
+        """Tâche de fond : lance les sondes échues dans la limite du débit.
+
+        Ne s'arrête jamais sur une exception (journalisée) ; seule l'annulation
+        (arrêt du démon) la termine.
+        """
+        if self._proactive_wake is None:
+            self._proactive_wake = asyncio.Event()
+        while True:
+            self._proactive_wake.clear()
+            try:
+                delay = await self.proactive_pass()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                self._warn_limited(("proactive", "loop"),
+                                   "résolution proactive : erreur interne : %r" % (exc,))
+                delay = PROACTIVE_SLEEP_MAX
+            try:
+                await asyncio.wait_for(self._proactive_wake.wait(), delay)
+            except asyncio.TimeoutError:
+                pass
+
+    async def proactive_pass(self):
+        """Une passe : lance les sondes échues ; renvoie la durée de sommeil voulue.
+
+        Le sommeil est interrompu par un rechargement ou la fin d'une sonde.
+        """
+        sched = self.sched
+        if not self.cfg.proactive_enabled or sched is None or not len(sched):
+            return PROACTIVE_SLEEP_MAX
+        limit = PROACTIVE_MAX_CONCURRENT - self._proactive_active
+        if limit <= 0:
+            return PROACTIVE_SLEEP_MAX      # réveil à la fin d'une sonde
+        keys = sched.due(self.clock(), limit)
+        for key in keys:
+            self._proactive_active += 1
+            self.spawn(self._probe(sched, key))
+        if keys:
+            # débit : n sondes lancées = n / PROACTIVE_RATE s avant la suivante
+            await asyncio.sleep(len(keys) / PROACTIVE_RATE)
+            return 0.0
+        nxt = sched.next_due()
+        if nxt is None:
+            return PROACTIVE_SLEEP_MAX
+        return min(max(nxt - self.clock(), PROACTIVE_SLEEP_MIN), PROACTIVE_SLEEP_MAX)
+
+    async def _probe(self, sched, key):
+        """Sonde d'une cible : replanifie toujours la cible, ne lève jamais (hors annulation)."""
+        try:
+            gen = self._config_gen
+            try:
+                outcome, ttl = await self._probe_resolve(sched, key, gen)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                self._warn_limited(("proactive", key),
+                                   "résolution proactive de %s impossible : %r" % (key[0], exc))
+                self.metrics.add_proactive("fail")
+                outcome, ttl = "fail", None
+            if self.sched is not sched:
+                return              # Scheduler recréé : la cible a été rechargée
+            now = self.clock()
+            if outcome == "stale":
+                sched.defer(key, now + PROACTIVE_RETRY_DELAY)
+            elif outcome != "deferred":
+                sched.done(key, now, outcome, ttl)
+        finally:
+            self._proactive_active -= 1
+            self._proactive_notify()
+
+    async def _probe_resolve(self, sched, key, gen):
+        """(outcome, ttl) d'une cible. Outcomes en plus de ceux du Scheduler : « stale »
+        (configuration changée pendant la sonde, réponse jetée) et « deferred »
+        (déjà reportée, tables en pause après un échec pfctl)."""
+        name, qtype = key
+        tables = [t for t in self._proactive_targets.get(key, ())
+                  if t in self.apps and self.apps[t].enabled]
+        if not tables:
+            return "stale", None
+        now = self.clock()
+        ends = [self._cooldown.get(t, 0.0) for t in tables]
+        if all(end > now for end in ends):
+            sched.defer(key, min(ends) + self._proactive_rng.uniform(0, PROACTIVE_DEFER_JITTER))
+            return "deferred", None
+        try:
+            query = dnswire.build_query(name, qtype)
+        except ValueError:
+            self.metrics.add_proactive("fail")
+            return "fail", None
+        expect = dnswire.question_key(query)
+        self.metrics.add_proactive("sent")           # une requête réseau réellement émise
+        raw = await self.forward(query, "udp", measure=False)
+        resp = dnswire.parse_response(raw) if raw is not None else None
+        if resp is not None and resp.truncated and self.cfg.upstream_protocol != "dot":
+            self.metrics.add_proactive("sent")       # le rejeu TCP est une requête de plus
+            raw = await self.forward(query, "tcp", measure=False)   # TC : rejeu en TCP
+            resp = dnswire.parse_response(raw) if raw is not None else None
+        if gen != self._config_gen:
+            return "stale", None
+        if resp is None or expect is None or (resp.id, resp.qname) != tuple(expect):
+            self.metrics.add_proactive("fail")
+            return "fail", None
+        if resp.rcode == 3:
+            self.metrics.add_proactive("empty")
+            return "nxdomain", None
+        if resp.rcode != 0:
+            self.metrics.add_proactive("fail")
+            return "fail", None
+        addrs = dnswire.addresses(resp, dnswire.cname_chain(resp))
+        if not addrs:
+            self.metrics.add_proactive("empty")
+            return "nodata", None
+        await self.process_response(raw, expect, observe=False, hit=False, source="proactive")
+        self.metrics.add_proactive("ok")
+        return "ok", min(ttl for _ip, ttl in addrs)
 
     # -- maintenance --
     async def sweep(self):
@@ -832,6 +1028,7 @@ class Relay:
         ]
         # Version du code en cours d'exécution, visible tout de suite dans l'état.
         self.save_metrics(force=True)
+        self._proactive_task = self.spawn(self.proactive_loop())
         if self.ready is not None:
             self.ready.set()
         try:
@@ -840,8 +1037,11 @@ class Relay:
             for task in periodic:
                 task.cancel()
             await self.close_listeners()
-            for task in list(self._tasks):
+            tasks = list(self._tasks)
+            for task in tasks:
                 task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)   # boucle et sondes proactives
+            self._proactive_task = None
             self.close_pools()
             self.save_state()
             self.save_metrics()

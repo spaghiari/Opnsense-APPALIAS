@@ -35,6 +35,13 @@ cloudapp.net
 windows.net
 github.io
 herokuapp.com
+# Espaces intermédiaires multi-locataires : une règle « domain: » sur l'un
+# d'eux couvrirait tous les locataires. Les noms strictement dessous
+# (bucket.s3.amazonaws.com) restent inclus.
+s3.amazonaws.com
+s3-accelerate.amazonaws.com
+blob.core.windows.net
+storage.googleapis.com
 workers.dev
 pages.dev
 vercel.app

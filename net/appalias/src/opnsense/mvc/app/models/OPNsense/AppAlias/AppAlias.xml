@@ -1,6 +1,6 @@
 <model>
     <mount>//OPNsense/appalias</mount>
-    <version>0.5.0</version>
+    <version>0.6.0</version>
     <description>AppAlias: one External pf alias per application, filled by the appaliasd DNS relay</description>
     <items>
         <general>
@@ -128,15 +128,38 @@
             <discovery_ignored type="CSVListField">
                 <Required>N</Required>
             </discovery_ignored>
+            <proactive_enabled type="BooleanField">
+                <Default>1</Default>
+                <Required>Y</Required>
+            </proactive_enabled>
+            <proactive_interval_min type="IntegerField">
+                <Default>300</Default>
+                <Required>Y</Required>
+                <MinimumValue>60</MinimumValue>
+                <MaximumValue>86400</MaximumValue>
+                <ValidationMessage>Value between 60 and 86400 seconds.</ValidationMessage>
+            </proactive_interval_min>
+            <proactive_interval_max type="IntegerField">
+                <Default>3600</Default>
+                <Required>Y</Required>
+                <MinimumValue>300</MinimumValue>
+                <MaximumValue>86400</MaximumValue>
+                <ValidationMessage>Value between 300 and 86400 seconds.</ValidationMessage>
+            </proactive_interval_max>
+            <proactive_prefixes type="CSVListField">
+                <Default>www</Default>
+                <Required>N</Required>
+            </proactive_prefixes>
             <catalog_online_update type="BooleanField">
                 <Default>1</Default>
                 <Required>Y</Required>
             </catalog_online_update>
             <catalog_update_schedule type="OptionField">
-                <Default>daily</Default>
+                <Default>hourly</Default>
                 <Required>Y</Required>
                 <OptionValues>
                     <manual>Manual</manual>
+                    <hourly>Hourly</hourly>
                     <daily>Daily</daily>
                 </OptionValues>
             </catalog_update_schedule>
@@ -210,6 +233,10 @@
                 <catalog_declined type="CSVListField">
                     <Required>N</Required>
                 </catalog_declined>
+                <proactive type="BooleanField">
+                    <Default>1</Default>
+                    <Required>Y</Required>
+                </proactive>
             </app>
         </apps>
     </items>

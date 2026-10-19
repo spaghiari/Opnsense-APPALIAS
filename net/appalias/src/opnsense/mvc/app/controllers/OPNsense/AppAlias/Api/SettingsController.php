@@ -48,6 +48,7 @@ class SettingsController extends ApiMutableModelControllerBase
             [
                 'enabled', 'name', 'description', 'origin', 'domains', 'networks', 'families', 'catalog_refs',
                 'catalog_follow',
+                'proactive',
             ],
             'name'
         );

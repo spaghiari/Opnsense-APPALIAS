@@ -34,7 +34,7 @@
  *   catalog_follow.php undo <id>    annule une entrée du journal
  *
  * Lancé après chaque mise à jour réussie du catalogue (catalog_update.py :
- * cron quotidien, POST_INSTALL, bouton « Update catalog now »), après une
+ * cron horaire par défaut, POST_INSTALL, bouton « Update catalog now »), après une
  * mise à jour du paquet (+POST_INSTALL : catalogue embarqué plus récent) et
  * par l'action configd « appalias catalog_follow_undo ».
  *
@@ -43,10 +43,13 @@
  * script garde le verrou de config.xml et passe par le modèle et ses
  * validations, application par application : une application refusée
  * (validation, plafond, liste du catalogue disparue) n'est pas enregistrée
- * et l'erreur est journalisée ; les autres le sont. Puis le même
- * enchaînement que « Apply » : export, synchronisation des alias, zones
+ * et l'erreur est journalisée ; les autres le sont. Puis, si le plugin est
+ * activé seulement, un enchaînement plus étroit que « Apply » : export, zones
  * d'Unbound (redémarré seulement si la liste des zones change) et
- * rechargement du relais s'il tourne. Sortie : un JSON.
+ * rechargement du relais s'il tourne. Pas de synchronisation des alias (le
+ * suivi ne crée ni ne supprime d'alias : pas de « filter reload »). Plugin
+ * désactivé : config.xml est enregistré et journalisé (annulable) mais rien
+ * n'est appliqué, l'application est différée. Sortie : un JSON.
  */
 
 require_once('script/load_phalcon.php');
@@ -114,18 +117,28 @@ function appalias_validation_text($mdl)
     return implode('; ', $parts);
 }
 
+/** Le plugin est-il activé (general.enabled) ? Lu dans la configuration courante. */
+function appalias_enabled()
+{
+    return (string)(new AppAlias())->general->enabled === '1';
+}
+
 /**
- * Enchaînement de « Apply » (ServiceController::reconfigureAction), sans
- * template ni cron : aucun réglage n'a changé. Renvoie null, ou le nom de
- * l'étape en échec. Le relais est rechargé s'il tourne ; arrêté, il relira
- * config.json à son prochain démarrage (pas de démarrage automatique).
- * Appelé hors du verrou de config.xml : sync_aliases.php le prend lui-même.
+ * Application du suivi, plus étroite que « Apply »
+ * (ServiceController::reconfigureAction) : export, zones d'Unbound puis
+ * rechargement du relais. Pas de synchronisation des alias (sync_aliases.php,
+ * qui entraîne un « filter reload ») : le suivi ne crée ni ne supprime jamais
+ * d'alias et ne touche pas aux champs que cette étape lit (nom, alias_uuid).
+ * Pas de template ni de cron : aucun réglage n'a changé. Renvoie null, ou le
+ * nom de l'étape en échec. Le relais est rechargé s'il tourne ; arrêté, il
+ * relira config.json à son prochain démarrage (pas de démarrage automatique).
+ * Ne doit être appelée que si le plugin est activé (cf. appalias_run et
+ * appalias_undo).
  */
 function appalias_apply()
 {
     $steps = [
         'export' => [APPALIAS_SCRIPTS . '/export_config.php'],
-        'sync' => [APPALIAS_SCRIPTS . '/sync_aliases.php'],
         'unbound' => [APPALIAS_SCRIPTS . '/unbound_forward.py', '--apply'],
     ];
     foreach ($steps as $step => $cmd) {
@@ -140,7 +153,7 @@ function appalias_apply()
             return $step;
         }
     }
-    if ((string)(new AppAlias())->general->enabled != '1') {
+    if (!appalias_enabled()) {
         return null;
     }
     $output = [];
@@ -324,6 +337,10 @@ function appalias_run()
         $cfg->unlock();
     }
     appalias_record($entries);
+    if (!appalias_enabled()) {
+        syslog(LOG_INFO, 'appalias: suivi du catalogue : application différée, le plugin est désactivé');
+        return $out;
+    }
     $failed = appalias_apply();
     if ($failed !== null) {
         $out['apply_error'] = $failed;
@@ -404,6 +421,10 @@ function appalias_undo($entryId)
         'undo_of' => $entryId,
     ]]);
     $out = ['result' => 'undone', 'app' => $name, 'added' => $added, 'removed' => $removed];
+    if (!appalias_enabled()) {
+        syslog(LOG_INFO, 'appalias: annulation du suivi du catalogue : application différée, le plugin est désactivé');
+        return $out;
+    }
     $failed = appalias_apply();
     if ($failed !== null) {
         $out['apply_error'] = $failed;

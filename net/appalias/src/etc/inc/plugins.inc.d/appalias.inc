@@ -64,27 +64,27 @@ function appalias_services()
 }
 
 /**
- * Mise à jour quotidienne du catalogue v2fly (activée par défaut) : une tâche
- * cron seulement si le téléchargement en ligne est activé et la fréquence
- * réglée sur « daily ». Minute et heure (entre 1 h et 4 h 59) dérivées du nom
- * d'hôte, pour que les pare-feu n'appellent pas GitHub tous à la même heure.
- * Le script prend un verrou et ne remplace jamais le catalogue sans contrôle
- * de cohérence. Rien n'est appliqué aux applications : les nouveautés passent
- * par le diff.
+ * Mise à jour automatique du catalogue v2fly (activée par défaut, toutes les
+ * heures) : une tâche cron seulement si le téléchargement en ligne est activé
+ * et la fréquence différente de « manual ». « hourly » : toutes les heures, à
+ * une minute dérivée du nom d'hôte ; « daily » : une fois par jour, heure
+ * (1 h à 4 h 59) également dérivée du nom d'hôte. Ainsi les pare-feu
+ * n'appellent pas GitHub tous au même instant. Le script prend un verrou, ne
+ * remplace jamais le catalogue sans contrôle de cohérence, et les applications
+ * qui suivent le catalogue sont mises à jour automatiquement ; les autres
+ * nouveautés passent par le diff.
  */
 function appalias_cron()
 {
     $jobs = [];
     $mdl = new \OPNsense\AppAlias\AppAlias();
-    if (
-        (string)$mdl->general->catalog_online_update == '1' &&
-        (string)$mdl->general->catalog_update_schedule == 'daily'
-    ) {
+    $schedule = (string)$mdl->general->catalog_update_schedule;
+    if ((string)$mdl->general->catalog_online_update == '1' && ($schedule == 'hourly' || $schedule == 'daily')) {
         $hash = crc32((string)gethostname());
         $jobs[]['autocron'] = [
             '/usr/local/sbin/configctl -d appalias catalog_update',
             (string)($hash % 60),
-            (string)(1 + intdiv($hash, 60) % 4),
+            $schedule == 'hourly' ? '*' : (string)(1 + intdiv($hash, 60) % 4),
         ];
     }
     return $jobs;

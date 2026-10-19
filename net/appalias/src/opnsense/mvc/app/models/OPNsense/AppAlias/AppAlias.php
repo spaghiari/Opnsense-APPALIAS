@@ -54,6 +54,7 @@ class AppAlias extends BaseModel
 
     /** Nombre maximal de règles ignorées par la découverte. */
     const MAX_DISCOVERY_IGNORED = 2000;
+    const MAX_PROACTIVE_PREFIXES = 8;
 
     /** Contenu de SHARED_PLATFORMS_FILE, lu une fois par requête. */
     private static $sharedPlatformsFile = null;
@@ -208,7 +209,8 @@ class AppAlias extends BaseModel
         $names = array_fill_keys(self::sharedPlatformsFromFile(), true);
         foreach (self::splitList($this->general->shared_platforms_extra) as $item) {
             $item = self::normalizeHost($item);
-            if ($item !== '') {
+            // même validation de nom que lib/shared.py (_NAME)
+            if ($item !== '' && preg_match('/^[a-z0-9_]([a-z0-9_-]{0,61}[a-z0-9_])?(\.[a-z0-9_]([a-z0-9_-]{0,61}[a-z0-9_])?)*$/', $item) === 1) {
                 $names[$item] = true;
             }
         }
@@ -288,7 +290,36 @@ class AppAlias extends BaseModel
     }
 
     /**
-     * Vrai si le nom est une plateforme partagée, son parent ou son sous-domaine.
+     * Exclusion d'une règle du catalogue (miroir de shared.excluded, lib/shared.py) :
+     * « tld » pour un nom sans point, « shared » quand le nom est égal à une
+     * plateforme partagée ou parent de l'une d'elles, sinon null. Un nom
+     * strictement sous une plateforme (youtubei.googleapis.com) n'est pas exclu.
+     * Seuls les types « domain » et « full » sont concernés (autres : null).
+     */
+    public static function catalogExclusion(string $kind, string $value, array $platforms): ?string
+    {
+        if ($kind !== 'domain' && $kind !== 'full') {
+            return null;
+        }
+        // comme shared.normalize : retire aussi « *. » en tête
+        $value = self::normalizeHost($value);
+        if ($value === '') {
+            return null;
+        }
+        if (strpos($value, '.') === false) {
+            return 'tld';
+        }
+        foreach ($platforms as $platform) {
+            if ($platform === $value || str_ends_with($platform, '.' . $value)) {
+                return 'shared';
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Vrai si le nom est une plateforme partagée, son parent ou son sous-domaine
+     * (utilisé par la découverte ; le catalogue passe par catalogExclusion).
      */
     public static function touchesShared($value, $platforms)
     {
@@ -492,6 +523,56 @@ class AppAlias extends BaseModel
                     $messages->appendMessage(new Message(
                         sprintf(gettext('Invalid ignored discovery rule: %s (full:name or domain:name).'), $rule),
                         $general->discovery_ignored->__reference
+                    ));
+                    break;
+                }
+            }
+        }
+
+        // Résolution proactive : intervalles cohérents entre eux et avec l'expiration
+        // des entrées (sinon elles expireraient entre deux passes), préfixes = labels DNS.
+        if (
+            $validateFullModel ||
+            $general->proactive_interval_min->isFieldChanged() ||
+            $general->proactive_interval_max->isFieldChanged() ||
+            $general->ttl_min->isFieldChanged() ||
+            $general->ttl_margin->isFieldChanged()
+        ) {
+            $imin = (int)(string)$general->proactive_interval_min;
+            $imax = (int)(string)$general->proactive_interval_max;
+            $expiry = (int)(string)$general->ttl_min + (int)(string)$general->ttl_margin;
+            if ($imin > $imax) {
+                $messages->appendMessage(new Message(
+                    gettext('The minimum interval must not exceed the maximum interval.'),
+                    $general->proactive_interval_min->__reference
+                ));
+            }
+            if ($imax >= $expiry) {
+                $messages->appendMessage(new Message(
+                    sprintf(
+                        gettext('The maximum interval must stay below minimum TTL + TTL margin (%d s).'),
+                        $expiry
+                    ),
+                    $general->proactive_interval_max->__reference
+                ));
+            }
+        }
+        if ($validateFullModel || $general->proactive_prefixes->isFieldChanged()) {
+            $labels = self::splitList($general->proactive_prefixes);
+            if (count($labels) > self::MAX_PROACTIVE_PREFIXES) {
+                $messages->appendMessage(new Message(
+                    sprintf(gettext('At most %d proactive prefixes.'), self::MAX_PROACTIVE_PREFIXES),
+                    $general->proactive_prefixes->__reference
+                ));
+            }
+            foreach ($labels as $label) {
+                if (preg_match('/^[A-Za-z0-9-]{1,63}$/', $label) !== 1) {
+                    $messages->appendMessage(new Message(
+                        sprintf(
+                            gettext('Invalid proactive prefix: %s (letters, digits or "-", 63 characters at most, no dot).'),
+                            $label
+                        ),
+                        $general->proactive_prefixes->__reference
                     ));
                     break;
                 }

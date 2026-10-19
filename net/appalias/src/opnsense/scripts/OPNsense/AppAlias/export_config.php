@@ -81,6 +81,11 @@ $out = [
         'discovery_max_names' => $intOrNull($gen->discovery_max_names),
         'discovery_window' => $intOrNull($gen->discovery_window),
         'discovery_ignored' => AppAlias::splitList($gen->discovery_ignored),
+        // résolution proactive : activée par défaut (valeur vide = défaut côté démon)
+        'proactive_enabled' => (string)$gen->proactive_enabled !== '0',
+        'proactive_interval_min' => $intOrNull($gen->proactive_interval_min),
+        'proactive_interval_max' => $intOrNull($gen->proactive_interval_max),
+        'proactive_prefixes' => AppAlias::splitList($gen->proactive_prefixes),
         // mise à jour en ligne du catalogue : activée par défaut
         'catalog_online_update' => (string)$gen->catalog_online_update !== '0',
     ],
@@ -100,6 +105,7 @@ foreach ($mdl->apps->app->iterateItems() as $uuid => $app) {
         'families' => (string)$app->families,
         'alias_uuid' => (string)$app->alias_uuid,
         'catalog_refs' => AppAlias::splitList($app->catalog_refs),
+        'proactive' => (string)$app->proactive !== '0',
     ];
 }
 

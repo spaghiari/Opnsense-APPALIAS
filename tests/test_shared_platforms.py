@@ -16,6 +16,9 @@ EXPECTED = {
     "edgecastcdn.net", "llnwd.net", "b-cdn.net", "cdn77.org", "incapdns.net",
     "cloudapp.net", "windows.net", "github.io", "herokuapp.com", "workers.dev",
     "pages.dev", "vercel.app", "netlify.app", "appspot.com",
+    # espaces intermédiaires multi-locataires
+    "s3.amazonaws.com", "s3-accelerate.amazonaws.com", "blob.core.windows.net",
+    "storage.googleapis.com",
 }
 
 MODEL_PHP = os.path.join(ROOT, "net", "appalias", "src", "opnsense", "mvc", "app", "models",
@@ -62,6 +65,65 @@ class SharedPlatformsTests(unittest.TestCase):
         self.assertEqual(shared.refused("domain", "example.org", p), "shared")
         self.assertEqual(shared.refused("domain", "cdn.example.org", p), "shared")
         self.assertIsNone(shared.refused("domain", "x.cdn.example.org", p))
+
+    def test_excluded(self):
+        p = shared.load()
+        self.assertEqual(shared.excluded("full", "googleapis.com", p), "shared")
+        self.assertEqual(shared.excluded("domain", "googleapis.com", p), "shared")
+        self.assertEqual(shared.excluded("domain", "com", p), "tld")
+        self.assertEqual(shared.excluded("full", "com", p), "tld")
+        self.assertIsNone(shared.excluded("domain", "youtubei.googleapis.com", p))
+        self.assertIsNone(shared.excluded("full", "yt3.googleusercontent.com", p))
+        self.assertIsNone(shared.excluded("domain", "netflix.com", p))
+        self.assertIsNone(shared.excluded("keyword", "com", p))
+        self.assertIsNone(shared.excluded("regexp", "googleapis.com", p))
+        self.assertEqual(shared.excluded("domain", "GoogleAPIs.com.", p), "shared")
+        self.assertIsNone(shared.excluded("domain", "YouTubei.GoogleAPIs.com.", p))
+
+    def test_excluded_multitenant(self):
+        p = shared.load()
+        self.assertEqual(shared.excluded("domain", "s3.amazonaws.com", p), "shared")
+        self.assertEqual(shared.excluded("domain", "blob.core.windows.net", p), "shared")
+        self.assertEqual(shared.excluded("domain", "core.windows.net", p), "shared")   # parent
+        self.assertEqual(shared.excluded("domain", "amazonaws.com", p), "shared")      # parent conservé
+        self.assertEqual(shared.excluded("domain", "storage.googleapis.com", p), "shared")
+        self.assertEqual(shared.excluded("domain", "github.io", p), "shared")
+        self.assertIsNone(shared.excluded("domain", "bucket.s3.amazonaws.com", p))
+        self.assertIsNone(shared.excluded("full", "acct.blob.core.windows.net", p))
+        self.assertIsNone(shared.excluded("domain", "x.storage.googleapis.com", p))
+
+    def test_normalize_wildcard(self):
+        # parité avec AppAlias::normalizeHost / catalogExclusion (retire « *. » en tête)
+        p = shared.load()
+        self.assertEqual(shared.excluded("domain", "*.googleapis.com", p), "shared")
+        self.assertIsNone(shared.excluded("domain", "*.youtubei.googleapis.com", p))
+        self.assertEqual(shared.normalize(" *.Example.COM. "), "example.com")
+        with open(MODEL_PHP, "r", encoding="utf-8") as fh:
+            php = fh.read()
+        body = php[php.index("function catalogExclusion"):]
+        body = body[:body.index(chr(10) + "    }" + chr(10))]
+        self.assertIn("self::normalizeHost($value)", body)
+
+    def test_extra_validation_parity(self):
+        # la regex PHP de sharedPlatforms() reproduit à l'identique shared._NAME
+        with open(MODEL_PHP, "r", encoding="utf-8") as fh:
+            php = fh.read()
+        body = php[php.index("function sharedPlatforms()"):]
+        body = body[:body.index(chr(10) + "    }" + chr(10))]
+        match = re.search(r"preg_match\('/(.+?)/', \$item\)", body)
+        self.assertIsNotNone(match)
+        self.assertEqual(match.group(1), shared._NAME.pattern)
+        for bad in ["bad name", "-x.org", "a..b", "x" * 64 + ".org"]:
+            self.assertIsNone(shared._NAME.match(bad), bad)
+            self.assertNotIn(bad, shared.load(extra=[bad]))
+
+    def test_excluded_extra(self):
+        p = shared.load(extra=["cdn.example.org"])
+        self.assertEqual(shared.excluded("domain", "cdn.example.org", p), "shared")
+        self.assertEqual(shared.excluded("full", "example.org", p), "shared")
+        self.assertIsNone(shared.excluded("full", "x.cdn.example.org", p))
+        # touches (découverte) continue de signaler le sous-domaine
+        self.assertTrue(shared.touches("x.cdn.example.org", p))
 
     def test_touches(self):
         p = self.platforms

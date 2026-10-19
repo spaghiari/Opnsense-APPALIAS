@@ -128,6 +128,35 @@
         <help>Names added to the built-in list of shared platforms (CDN, cloud, hosting). A "domain:" rule equal to one of them, or a parent of one, is refused.</help>
     </field>
     <field>
+        <id>appalias.general.proactive_enabled</id>
+        <label>Proactive resolution</label>
+        <type>checkbox</type>
+        <help>The relay resolves by itself, at regular intervals, the "domain:" and "full:" names of the enabled applications that have the option checked, to fill the aliases before any client asks. It works in addition to the DNS relay, not instead of it: dynamic names, "regexp:" and "keyword:" rules and shared platforms (CDN, cloud) are not covered. It generates outgoing DNS traffic towards the upstream resolver.</help>
+    </field>
+    <field>
+        <id>appalias.general.proactive_interval_min</id>
+        <label>Proactive minimum interval (s)</label>
+        <type>text</type>
+        <advanced>true</advanced>
+        <help>Shortest delay between two resolutions of a name (60 to 86400). Must not exceed the maximum interval.</help>
+    </field>
+    <field>
+        <id>appalias.general.proactive_interval_max</id>
+        <label>Proactive maximum interval (s)</label>
+        <type>text</type>
+        <advanced>true</advanced>
+        <help>Longest delay between two resolutions of a name (300 to 86400). Must stay below minimum TTL + TTL margin, otherwise addresses would expire between two passes.</help>
+    </field>
+    <field>
+        <id>appalias.general.proactive_prefixes</id>
+        <label>Proactive prefixes</label>
+        <type>select_multiple</type>
+        <style>tokenize</style>
+        <allownew>true</allownew>
+        <advanced>true</advanced>
+        <help>Labels tried in front of each "domain:" rule, for example www gives www.example.com (8 at most; letters, digits or "-", no dot). The domain itself is always resolved.</help>
+    </field>
+    <field>
         <id>appalias.general.catalog_online_update</id>
         <label>Download catalog updates</label>
         <type>checkbox</type>
@@ -137,7 +166,7 @@
         <id>appalias.general.catalog_update_schedule</id>
         <label>Catalog update schedule</label>
         <type>dropdown</type>
-        <help>Daily (default): a nightly download, at a time derived from the host name (cron job, only while the download option is checked). Manual: only with "Update catalog now".</help>
+        <help>Hourly (default): the online list is checked every hour, at a minute derived from the host name (cron job, only while the download option is checked). Each check is a single API call; the archive is downloaded only if the list has changed, and applications that follow the catalog are then updated automatically. Daily: the same check once a day. Manual: only with "Update catalog now".</help>
     </field>
     <field>
         <id>appalias.general.alias_prefix</id>

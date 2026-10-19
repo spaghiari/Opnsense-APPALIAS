@@ -37,10 +37,13 @@ comme dans le modèle MVC) :
               "loglevel": "info", "shared_platforms_extra": ["name", ...],
               "unbound_autoforward": false, "discovery_enabled": false,
               "discovery_retention_days": 7, "discovery_max_names": 5000,
-              "discovery_window": 5, "discovery_ignored": ["full:x", "domain:y", ...]},
+              "discovery_window": 5, "discovery_ignored": ["full:x", "domain:y", ...],
+              "proactive_enabled": true, "proactive_interval_min": 300,
+              "proactive_interval_max": 3600, "proactive_prefixes": ["www"]},
   "apps": [{"uuid": "...", "enabled": true, "name": "X", "description": "...",
             "origin": "manual", "domains": [...], "asns": [...],
-            "networks": [...], "families": "both", "catalog_refs": [...]}],
+            "networks": [...], "families": "both", "catalog_refs": [...],
+            "proactive": true}],
   "unbound": {"enabled": true, "port": 53, "forwarding": false, "local_addresses": ["ip", ...],
               "dots": [{"domain": "...", "type": "dot|forward", "enabled": true}],
               "local_domains": ["...", ...]}
@@ -53,6 +56,11 @@ pour chaque amont (celui de l'amont principal par défaut pour les secours).
 
 Découverte (désactivée par défaut) : discovery_ignored ne garde que des règles
 « full:x » ou « domain:x » valides (2000 au plus), normalisées en (type, nom).
+
+Résolution proactive (activée par défaut, absente des anciens config.json) :
+proactive_interval_min <= proactive_interval_max, ce dernier restant strictement
+sous ttl_min + ttl_margin (sinon les entrées expireraient entre deux passes) ;
+proactive_prefixes ne garde que des labels DNS valides, sans doublon (8 au plus).
 """
 
 import ipaddress
@@ -78,6 +86,12 @@ DISCOVERY_RETENTION = (7, 1, 90)          # jours
 DISCOVERY_MAX_NAMES = (5000, 500, 50000)
 DISCOVERY_WINDOW = (5, 1, 30)             # secondes
 DISCOVERY_MAX_IGNORED = 2000
+# Résolution proactive : bornes (défaut, minimum, maximum) en secondes.
+PROACTIVE_INTERVAL_MIN = (300, 60, 86400)
+PROACTIVE_INTERVAL_MAX = (3600, 300, 86400)
+PROACTIVE_MAX_PREFIXES = 8
+PROACTIVE_DEFAULT_PREFIXES = ["www"]
+LABEL_RE = re.compile(r"^[a-z0-9_]([a-z0-9_-]{0,61}[a-z0-9_])?$")
 HOST_RE = re.compile(r"^[a-z0-9_]([a-z0-9_-]{0,61}[a-z0-9_])?(\.[a-z0-9_]([a-z0-9_-]{0,61}[a-z0-9_])?)*$")
 
 # Nom TLS : nom d'hôte (labels LDH) ou adresse IP.
@@ -265,6 +279,61 @@ def parse_ignored(values):
     return out
 
 
+def parse_prefixes(value):
+    """Préfixes de la résolution proactive -> liste de labels DNS (minuscules).
+
+    Un label invalide est écarté avec un avertissement, les doublons sont
+    ignorés, 8 au plus. Clé absente : ["www"] ; liste vide : aucun préfixe.
+    """
+    if value is None:
+        return list(PROACTIVE_DEFAULT_PREFIXES)
+    out = []
+    for item in as_list(value):
+        label = item.strip().lower()
+        if not LABEL_RE.match(label):
+            log.warning("proactive_prefixes : préfixe écarté (label DNS invalide) : %s", item)
+            continue
+        if label in out:
+            continue
+        if len(out) >= PROACTIVE_MAX_PREFIXES:
+            log.warning("proactive_prefixes : %d préfixes au plus, %s écarté", PROACTIVE_MAX_PREFIXES, label)
+            continue
+        out.append(label)
+    return out
+
+
+def proactive_intervals(gen, ttl_min, ttl_margin):
+    """(intervalle min, intervalle max, actif) de la résolution proactive, cohérents.
+
+    interval_max reste strictement sous ttl_min + ttl_margin (expiration d'une
+    entrée, cf. state.py) sinon les entrées clignotent ; interval_min est
+    ramené à interval_max s'il le dépasse. Chaque correction est journalisée.
+    Si ttl_min + ttl_margin - 1 tombe sous le plancher d'intervalle
+    (PROACTIVE_INTERVAL_MIN[1]), aucun intervalle sûr n'existe (rafale DNS) :
+    le proactif est désactivé (actif = False) avec un avertissement unique.
+    """
+    floor = PROACTIVE_INTERVAL_MIN[1]
+    imin = as_int(gen.get("proactive_interval_min"), *PROACTIVE_INTERVAL_MIN)
+    imax = as_int(gen.get("proactive_interval_max"), *PROACTIVE_INTERVAL_MAX)
+    limit = ttl_min + ttl_margin - 1
+    enabled = True
+    if limit < floor:
+        log.warning("résolution proactive désactivée : ttl_min + ttl_margin (%d) trop faible, "
+                    "l'intervalle devrait rester sous %d s (minimum %d s) ; augmenter ttl_min ou ttl_margin",
+                    ttl_min + ttl_margin, limit, floor)
+        enabled = False
+    elif imax > limit:
+        log.warning("proactive_interval_max (%d) doit rester sous ttl_min + ttl_margin (%d) : ramené à %d",
+                    imax, ttl_min + ttl_margin, limit)
+        imax = limit
+    if imin > imax:
+        if enabled:
+            log.warning("proactive_interval_min (%d) supérieur à proactive_interval_max (%d) : ramené à %d",
+                        imin, imax, imax)
+        imin = imax
+    return imin, imax, enabled
+
+
 def reject_wildcard(value, what):
     """« any » (joker OPNsense) n'a pas de sens ici : refus explicite."""
     if str(value).strip().lower() in ("any", "*"):
@@ -296,6 +365,7 @@ class App:
     networks: list = field(default_factory=list)
     families: str = "both"
     catalog_refs: list = field(default_factory=list)
+    proactive: bool = True
 
     def family_ok(self, ip):
         if self.families == "inet":
@@ -333,6 +403,10 @@ class Config:
     discovery_max_names: int = DISCOVERY_MAX_NAMES[0]
     discovery_window: int = DISCOVERY_WINDOW[0]
     discovery_ignored: list = field(default_factory=list)   # [(type, nom)]
+    proactive_enabled: bool = True
+    proactive_interval_min: int = PROACTIVE_INTERVAL_MIN[0]
+    proactive_interval_max: int = PROACTIVE_INTERVAL_MAX[0]
+    proactive_prefixes: list = field(default_factory=lambda: list(PROACTIVE_DEFAULT_PREFIXES))
 
     def excluded(self, ip):
         return any(ip.version == n.version and ip in n for n in self.exclude_networks)
@@ -425,7 +499,12 @@ def from_dict(data):
             networks=parse_networks(raw.get("networks"), table),
             families=families,
             catalog_refs=as_list(raw.get("catalog_refs")),
+            proactive=as_bool(raw.get("proactive"), True),
         ))
+
+    ttl_min = as_int(gen.get("ttl_min"), 300, 0)
+    ttl_margin = as_int(gen.get("ttl_margin"), 3600, 0)
+    proactive_min, proactive_max, proactive_ok = proactive_intervals(gen, ttl_min, ttl_margin)
 
     return Config(
         enabled=enabled,
@@ -433,8 +512,8 @@ def from_dict(data):
         listen_port=listen_port,
         upstreams=upstreams,
         follow_cname=as_bool(gen.get("follow_cname"), True),
-        ttl_min=as_int(gen.get("ttl_min"), 300, 0),
-        ttl_margin=as_int(gen.get("ttl_margin"), 3600, 0),
+        ttl_min=ttl_min,
+        ttl_margin=ttl_margin,
         max_entries_per_app=as_int(gen.get("max_entries_per_app"), 20000, 1),
         exclude_networks=parse_networks(gen.get("exclude_networks"), "exclude_networks"),
         alias_prefix=prefix,
@@ -450,6 +529,10 @@ def from_dict(data):
         discovery_max_names=as_int(gen.get("discovery_max_names"), *DISCOVERY_MAX_NAMES),
         discovery_window=as_int(gen.get("discovery_window"), *DISCOVERY_WINDOW),
         discovery_ignored=parse_ignored(gen.get("discovery_ignored")),
+        proactive_enabled=as_bool(gen.get("proactive_enabled"), True) and proactive_ok,
+        proactive_interval_min=proactive_min,
+        proactive_interval_max=proactive_max,
+        proactive_prefixes=parse_prefixes(gen.get("proactive_prefixes")),
     )
 
 

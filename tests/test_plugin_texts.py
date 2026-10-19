@@ -1,5 +1,5 @@
 """Contrôles statiques du plugin : textes source en anglais (ASCII), XML bien
-formés, champs du modèle 0.5.0 (plugin 0.6), actions configd du catalogue."""
+formés, champs du modèle 0.6.0 (plugin 0.6), actions configd du catalogue."""
 
 import configparser
 import glob
@@ -70,7 +70,7 @@ class ModelTests(unittest.TestCase):
         self.root = ET.parse(os.path.join(MODEL_DIR, "AppAlias.xml")).getroot()
 
     def test_version_and_fields(self):
-        self.assertEqual(self.root.findtext("version"), "0.5.0")
+        self.assertEqual(self.root.findtext("version"), "0.6.0")
         proto = self.root.find("items/general/upstream_protocol")
         self.assertEqual((proto.get("type"), proto.findtext("Default")), ("OptionField", "dns"))
         self.assertEqual(sorted(c.tag for c in proto.find("OptionValues")), ["dns", "dot"])
@@ -134,10 +134,10 @@ class ModelTests(unittest.TestCase):
             self.assertIn(name, volt)
 
     def test_plugin_version(self):
-        self.assertRegex(read(os.path.join(PLUGIN, "Makefile")), r"PLUGIN_VERSION=\s+0.6\n")
-        self.assertIn("\n0.6\n", read(os.path.join(PLUGIN, "pkg-descr")))
+        self.assertRegex(read(os.path.join(PLUGIN, "Makefile")), r"PLUGIN_VERSION=\s+0.7\n")
+        self.assertIn("\n0.7\n", read(os.path.join(PLUGIN, "pkg-descr")))
         from lib.version import VERSION
-        self.assertEqual(VERSION, "0.6")      # version écrite par le démon = paquet
+        self.assertEqual(VERSION, "0.7")     # version écrite par le démon = paquet
 
     def test_option_defaults_are_options(self):
         """Le défaut de chaque OptionField fait partie de ses OptionValues."""
@@ -159,7 +159,7 @@ class ModelTests(unittest.TestCase):
         expected = {"discovery_enabled": ("BooleanField", "0"), "discovery_retention_days": ("IntegerField", "7"),
                     "discovery_max_names": ("IntegerField", "5000"), "discovery_window": ("IntegerField", "5"),
                     "catalog_online_update": ("BooleanField", "1"),
-                    "catalog_update_schedule": ("OptionField", "daily")}
+                    "catalog_update_schedule": ("OptionField", "hourly")}
         for name, (kind, default) in expected.items():
             node = gen.find(name)
             self.assertEqual((node.get("type"), node.findtext("Default")), (kind, default), name)
@@ -167,11 +167,53 @@ class ModelTests(unittest.TestCase):
                           gen.find("discovery_retention_days/MaximumValue").text), ("1", "90"))
         self.assertEqual((gen.find("discovery_max_names/MinimumValue").text,
                           gen.find("discovery_max_names/MaximumValue").text), ("500", "50000"))
+        schedule = [c.tag for c in gen.find("catalog_update_schedule/OptionValues")]
+        self.assertEqual(schedule, ["manual", "hourly", "daily"])
+        form = read(os.path.join(SRC, "opnsense", "mvc", "app", "controllers", "OPNsense", "AppAlias",
+                                 "forms", "general.xml"))
+        help_text = re.search(r"<id>appalias\.general\.catalog_update_schedule</id>.*?<help>(.*?)</help>",
+                              form, re.S).group(1)
+        help_text.encode("ascii")            # aide en ASCII
+        self.assertIn("every hour", help_text)
         self.assertEqual(gen.find("discovery_ignored").get("type"), "CSVListField")
         export = read(os.path.join(SRC, "opnsense", "scripts", "OPNsense", "AppAlias", "export_config.php"))
         for name in ("discovery_enabled", "discovery_retention_days", "discovery_max_names",
                      "discovery_window", "discovery_ignored", "catalog_online_update"):
             self.assertIn("'%s' =>" % name, export)
+
+    def test_proactive_fields(self):
+        gen = self.root.find("items/general")
+        self.assertEqual((gen.find("proactive_enabled").get("type"), gen.findtext("proactive_enabled/Default")),
+                         ("BooleanField", "1"))
+        for name, default, lo, hi in (("proactive_interval_min", "300", "60", "86400"),
+                                      ("proactive_interval_max", "3600", "300", "86400")):
+            node = gen.find(name)
+            self.assertEqual((node.get("type"), node.findtext("Default"), node.findtext("MinimumValue"),
+                              node.findtext("MaximumValue")), ("IntegerField", default, lo, hi))
+        prefixes = gen.find("proactive_prefixes")
+        self.assertEqual((prefixes.get("type"), prefixes.findtext("Default")), ("CSVListField", "www"))
+        app = self.root.find("items/apps/app/proactive")
+        self.assertEqual((app.get("type"), app.findtext("Default"), app.findtext("Required")),
+                         ("BooleanField", "1", "Y"))
+        export = read(os.path.join(SRC, "opnsense", "scripts", "OPNsense", "AppAlias", "export_config.php"))
+        for name in ("proactive_enabled", "proactive_interval_min", "proactive_interval_max",
+                     "proactive_prefixes", "proactive"):
+            self.assertIn("'%s' =>" % name, export)
+        self.assertIn("AppAlias::splitList($gen->proactive_prefixes)", export)
+        text = read(os.path.join(MODEL_DIR, "Migrations", "M0_6_0.php"))
+        self.assertIn("class M0_6_0 extends BaseModelMigration", text)
+        self.assertIn("parent::run($model);", text)
+        form = ET.parse(os.path.join(FORMS, "general.xml")).getroot()
+        ids = [f.findtext("id") for f in form.findall("field")]
+        for name in ("proactive_enabled", "proactive_interval_min", "proactive_interval_max", "proactive_prefixes"):
+            self.assertIn("appalias.general." + name, ids)
+        form = ET.parse(os.path.join(FORMS, "dialogApp.xml")).getroot()
+        fields = {f.findtext("id"): f for f in form.findall("field")}
+        self.assertEqual(fields["app.proactive"].findtext("type"), "checkbox")
+        self.assertEqual(fields["app.proactive"].findtext("label"), "Proactive resolution")
+        php = read(os.path.join(MODEL_DIR, "AppAlias.php"))
+        self.assertIn("The minimum interval must not exceed the maximum interval.", php)
+        self.assertIn("must stay below minimum TTL + TTL margin", php)
 
     def test_catalog_follow_fields(self):
         app = self.root.find("items/apps/app")
@@ -200,11 +242,43 @@ class ModelTests(unittest.TestCase):
         self.assertIn("'catalog_follow'", settings)
         script = read(os.path.join(SRC, "opnsense", "scripts", "OPNsense", "AppAlias", "catalog_follow.php"))
         for needle in ("$cfg->lock();", "$cfg->unlock();", "serializeToConfig()", "$cfg->save();",
-                       "export_config.php", "sync_aliases.php", "unbound_forward.py', '--apply'", "onereload",
+                       "export_config.php", "unbound_forward.py', '--apply'", "onereload",
                        "LOG_INFO"):
             self.assertIn(needle, script)
-        # le verrou de config.xml est rendu avant l'enchaînement (sync_aliases.php le reprend)
+        # le suivi n'appelle plus la synchronisation des alias (le nom n'apparaît plus qu'en commentaire)
+        for form in ("/sync_aliases.php'", "/sync_aliases.php\"", "'sync' =>"):
+            self.assertNotIn(form, script)
+        # le verrou de config.xml est rendu avant l'enchaînement de l'application
         self.assertLess(script.index("$cfg->unlock();"), script.index("$failed = appalias_apply();"))
+
+    def test_follow_enabled_checked_before_apply(self):
+        script = read(os.path.join(SRC, "opnsense", "scripts", "OPNsense", "AppAlias", "catalog_follow.php"))
+        for fn in ("function appalias_run()", "function appalias_undo($entryId)"):
+            body = script[script.index(fn):]
+            nxt = body.find(chr(10) + "function ", 10)
+            body = body if nxt < 0 else body[:nxt]
+            self.assertIn("appalias_enabled()", body)
+            self.assertIn("appalias_apply()", body)
+            self.assertLess(body.index("appalias_enabled()"), body.index("appalias_apply()"))
+
+    def test_hourly_schedule(self):
+        inc = read(os.path.join(SRC, "etc", "inc", "plugins.inc.d", "appalias.inc"))
+        self.assertIn("'hourly'", inc)
+        xml = read(os.path.join(MODEL_DIR, "AppAlias.xml"))
+        self.assertIn("<hourly>Hourly</hourly>", xml)
+        self.assertIn("<Default>hourly</Default>", xml)
+        mig = read(os.path.join(MODEL_DIR, "Migrations", "M0_6_0.php"))
+        self.assertIn("=== 'daily'", mig)
+        self.assertIn("setValue('hourly')", mig)
+        self.assertNotIn("'manual'", mig)   # manual n'est jamais réécrit
+
+    def test_diff_projected_capped(self):
+        ctrl = read(os.path.join(MVC, "controllers", "OPNsense", "AppAlias", "Api", "CatalogController.php"))
+        body = ctrl[ctrl.index("public function diffAction()"):ctrl.index("public function applyDiffAction()")]
+        self.assertIn("$item['projected']", body)
+        self.assertIn("$item['capped']", body)
+        self.assertIn("followAdds(", body)
+        self.assertIn("catalog_declined", body)
 
     def test_volt_follow_and_covered(self):
         volt = read(os.path.join(MVC, "views", "OPNsense", "AppAlias", "index.volt"))

@@ -37,15 +37,18 @@ use OPNsense\Core\Config;
  * Catalogue v2fly embarqué (catalog/v2fly.lst, interrogé par catalog.py).
  *
  * GET  info, popular, search?q=, preview?ref=, diff[?uuid=], followLog ;
- * POST import {ref, mode: new|merge, app_uuid?, name?, rules[]},
+ * POST import {ref, mode: new|merge, app_uuid?, name?, rules[]} ; sans rules
+ *      (mode new) le serveur choisit les règles et renvoie la référence
+ *      effective (« ref », avec @-ads si la liste porte des règles @ads),
  *      applyDiff {app_uuid, add[], remove[]},
  *      update (téléchargement en ligne, si l'option est activée), reset
  *      (retour à l'instantané embarqué), undoFollow {entry_id}.
  *
  * Les écritures vérifient côté serveur que les règles viennent bien de la
  * résolution de la référence, puis enregistrent l'application dans
- * config.xml. Import, fusion et diff manuel n'appliquent rien : il faut
- * cliquer sur « Appliquer ». Seul le suivi automatique (catalog_follow=1,
+ * config.xml. Import, fusion et diff manuel n'appliquent rien eux-mêmes : le
+ * front enchaîne l'application (service/reconfigure), ou l'utilisateur clique
+ * sur « Appliquer ». Seul le suivi automatique (catalog_follow=1,
  * catalog_follow.php, après une mise à jour du catalogue) et son annulation
  * (undoFollow) appliquent eux-mêmes leurs changements.
  */
@@ -189,19 +192,157 @@ class CatalogController extends ApiControllerBase
         return $out;
     }
 
-    /** Vrai si le nom est une plateforme partagée, son parent ou son sous-domaine. */
-    private static function touchesShared($value, $platforms)
+    /**
+     * Règles que le suivi (lib/follow.py plan_app) ajouterait à l'application :
+     * mêmes écarts (déjà importée, déclinée, déjà présente sous sa forme
+     * canonique, doublon) et mêmes exclusions (virgule, découverte, refus,
+     * plateforme partagée ou TLD, noms ignorés par la découverte).
+     */
+    private static function followAdds($catalog, $imported, $declined, $domains, $platforms, $ignoredRules)
     {
-        foreach ($platforms as $platform) {
-            if (
-                $platform === $value ||
-                str_ends_with($platform, '.' . $value) ||
-                str_ends_with($value, '.' . $platform)
-            ) {
-                return true;
+        $importedSet = array_fill_keys($imported, true);
+        $declinedSet = array_fill_keys($declined, true);
+        $present = [];
+        foreach ($domains as $domain) {
+            $present[AppAlias::ruleKey($domain)] = true;
+        }
+        $ignFull = [];
+        $ignDomain = [];
+        foreach ($ignoredRules as $rule) {
+            if (preg_match('/^(full|domain):(.+)$/', trim((string)$rule), $m) === 1) {
+                if ($m[1] === 'full') {
+                    $ignFull[AppAlias::normalizeHost($m[2])] = true;
+                } else {
+                    $ignDomain[AppAlias::normalizeHost($m[2])] = true;
+                }
             }
         }
-        return false;
+        $add = [];
+        foreach ($catalog as $text) {
+            $text = (string)$text;
+            if (
+                isset($importedSet[$text]) || isset($declinedSet[$text]) ||
+                isset($present[AppAlias::ruleKey($text)]) || isset($add[$text])
+            ) {
+                continue;
+            }
+            if (preg_match('/^([a-z]+):(.*)$/s', $text, $m) === 1) {
+                $kind = $m[1];
+                $value = $m[2];
+            } else {
+                $kind = 'domain';
+                $value = $text;
+            }
+            if (strpos($text, ',') !== false || $kind === 'keyword' || $kind === 'regexp') {
+                continue;
+            }
+            if ($kind === 'domain' && AppAlias::sharedRefusal($text, $platforms) !== null) {
+                continue;
+            }
+            if ($kind === 'domain' || $kind === 'full') {
+                if (AppAlias::catalogExclusion($kind, $value, $platforms) !== null) {
+                    continue;
+                }
+                $name = AppAlias::normalizeHost($value);
+                if (isset($ignFull[$name])) {
+                    continue;
+                }
+                $labels = explode('.', $name);
+                $hit = false;
+                for ($i = 0; $i < count($labels); $i++) {
+                    if (isset($ignDomain[implode('.', array_slice($labels, $i))])) {
+                        $hit = true;
+                        break;
+                    }
+                }
+                if ($hit) {
+                    continue;
+                }
+            }
+            $add[$text] = true;
+        }
+        return array_keys($add);
+    }
+
+    /**
+     * Aperçu catalog_preview dont les drapeaux « refused » et « shared » sont
+     * recalculés avec la liste complète des plateformes (fichier + réglage extra).
+     */
+    private function previewData($ref, $platforms)
+    {
+        $data = $this->catalogRun('catalog_preview', $ref);
+        if (isset($data['rules']) && is_array($data['rules'])) {
+            foreach ($data['rules'] as $i => $rule) {
+                $kind = (string)($rule['kind'] ?? '');
+                $value = (string)($rule['value'] ?? '');
+                $text = (string)($rule['rule'] ?? '');
+                $refused = null;
+                if ($kind === 'domain') {
+                    $refused = AppAlias::sharedRefusal($text, $platforms);
+                }
+                if ($refused === null && strpos($text, ',') !== false) {
+                    $refused = 'comma';
+                }
+                $data['rules'][$i]['refused'] = $refused;
+                $data['rules'][$i]['shared'] = AppAlias::catalogExclusion($kind, $value, $platforms) === 'shared';
+            }
+        }
+        return $data;
+    }
+
+    /**
+     * Sélection automatique (import sans « rules ») : règles ni de découverte,
+     * ni sur une plateforme partagée, ni refusées, ni avec virgule. Si l'aperçu
+     * contient des règles @ads, la référence reçoit « @-ads » (comme le fait
+     * l'interface) et l'aperçu est relancé.
+     * @return array ['ref' => référence effective, 'rules' => règles retenues] ou ['error' => …]
+     */
+    private function autoSelect($ref, $platforms)
+    {
+        $data = $this->previewData($ref, $platforms);
+        if (isset($data['error']) || !isset($data['rules']) || !is_array($data['rules'])) {
+            return ['error' => (string)($data['error'] ?? gettext('Unreadable answer from catalog.py.'))];
+        }
+        $hasAds = false;
+        foreach ($data['rules'] as $rule) {
+            if (in_array('ads', (array)($rule['attrs'] ?? []), true)) {
+                $hasAds = true;
+                break;
+            }
+        }
+        // pas de « @-ads » si la référence demande déjà « ads » (x@ads) ou l'écarte déjà
+        // attributs seulement : l'index 0 est le nom de la liste
+        $tokens = array_slice(explode('@', $ref), 1);
+        if ($hasAds && !in_array('-ads', $tokens, true) && !in_array('ads', $tokens, true)) {
+            $ref = $ref . '@-ads';
+            if (!self::validRef($ref)) {
+                return ['error' => gettext('Invalid catalog reference.')];
+            }
+            $data = $this->previewData($ref, $platforms);
+            if (isset($data['error']) || !isset($data['rules']) || !is_array($data['rules'])) {
+                return ['error' => (string)($data['error'] ?? gettext('Unreadable answer from catalog.py.'))];
+            }
+        }
+        $selected = [];
+        foreach ($data['rules'] as $rule) {
+            $text = (string)($rule['rule'] ?? '');
+            if (
+                $text !== '' &&
+                empty($rule['discovery']) &&
+                empty($rule['shared']) &&
+                // « tld » comme « shared » : jamais sélectionnés automatiquement
+                AppAlias::catalogExclusion(
+                    (string)($rule['kind'] ?? ''),
+                    (string)($rule['value'] ?? ''),
+                    $platforms
+                ) === null &&
+                ($rule['refused'] ?? null) === null &&
+                strpos($text, ',') === false
+            ) {
+                $selected[$text] = true;
+            }
+        }
+        return ['ref' => $ref, 'rules' => array_keys($selected)];
     }
 
     /** Résolution (catalog.py resolve) d'une liste de références. */
@@ -310,27 +451,7 @@ class CatalogController extends ApiControllerBase
         if (!self::validRef($ref)) {
             return ['error' => gettext('Invalid catalog reference.')];
         }
-        $data = $this->catalogRun('catalog_preview', $ref);
-        if (isset($data['rules']) && is_array($data['rules'])) {
-            // Drapeaux recalculés avec la liste complète (fichier + réglage extra).
-            $platforms = (new AppAlias())->sharedPlatforms();
-            foreach ($data['rules'] as $i => $rule) {
-                $kind = (string)($rule['kind'] ?? '');
-                $value = (string)($rule['value'] ?? '');
-                $text = (string)($rule['rule'] ?? '');
-                $refused = null;
-                if ($kind === 'domain') {
-                    $refused = AppAlias::sharedRefusal($text, $platforms);
-                }
-                if ($refused === null && strpos($text, ',') !== false) {
-                    $refused = 'comma';
-                }
-                $data['rules'][$i]['refused'] = $refused;
-                $data['rules'][$i]['shared'] = in_array($kind, ['domain', 'full'], true) &&
-                    self::touchesShared($value, $platforms);
-            }
-        }
-        return $data;
+        return $this->previewData($ref, (new AppAlias())->sharedPlatforms());
     }
 
     public function importAction()
@@ -346,7 +467,20 @@ class CatalogController extends ApiControllerBase
         if (!in_array($mode, ['new', 'merge'], true)) {
             return self::failed(gettext('Invalid import mode.'));
         }
-        $rules = self::ruleList($this->request->getPost('rules'));
+        $rawRules = $this->request->getPost('rules');
+        // Clé « rules » absente seulement : une chaîne vide reste une sélection vide.
+        $isAuto = $rawRules === null && $mode === 'new';
+        if ($isAuto) {
+            // Sans « rules » : sélection automatique côté serveur (parcours « un clic »).
+            $auto = $this->autoSelect($ref, (new AppAlias())->sharedPlatforms());
+            if (isset($auto['error'])) {
+                return self::failed((string)$auto['error']);
+            }
+            $ref = $auto['ref'];
+            $rules = $auto['rules'];
+        } else {
+            $rules = self::ruleList($rawRules);
+        }
         if ($rules === null) {
             return self::failed(gettext('Invalid rule list.'));
         }
@@ -354,6 +488,13 @@ class CatalogController extends ApiControllerBase
             return self::failed(gettext('Select at least one rule.'));
         }
         if (count($rules) > self::MAX_IMPORT) {
+            if ($isAuto) {
+                return self::failed(sprintf(
+                    gettext('This application has %d rules to follow, above the limit of %d. Import it from the catalog dialog and choose the rules to keep.'),
+                    count($rules),
+                    self::MAX_IMPORT
+                ));
+            }
             return self::tooMany(count($rules));
         }
 
@@ -444,7 +585,7 @@ class CatalogController extends ApiControllerBase
         if (count($validations) > 0) {
             return self::failed(gettext('The application was not saved.'), ['validations' => $validations]);
         }
-        $result = ['result' => 'saved', 'uuid' => $uuid, 'count' => count($rules)];
+        $result = ['result' => 'saved', 'uuid' => $uuid, 'count' => count($rules), 'ref' => $ref];
         if (count($rules) > self::WARN_IMPORT) {
             $result['warning'] = sprintf(
                 gettext('%d rules imported: a large list can fill the alias with many addresses.'),
@@ -496,6 +637,25 @@ class CatalogController extends ApiControllerBase
                 $item['removed'] = self::minus($imported, $catalog);
                 $item['custom'] = self::minus(AppAlias::splitList($app->domains), $imported);
                 $item['catalog_revision'] = (string)($resolved['revision'] ?? '');
+                // Nombre de règles après application du diff, au regard du plafond.
+                // Application suivie : mêmes filtres que le suivi (plan_app) ; sinon
+                // règles proposées, comparées sous leur forme canonique.
+                $domains = AppAlias::splitList($app->domains);
+                if ((string)$app->catalog_follow === '1') {
+                    $adds = self::followAdds(
+                        $catalog,
+                        $imported,
+                        AppAlias::splitList($app->catalog_declined),
+                        $domains,
+                        $platforms,
+                        AppAlias::splitList($mdl->general->discovery_ignored)
+                    );
+                } else {
+                    $adds = self::minusRules($item['added'], $domains);
+                }
+                $projected = count(self::minus($domains, $item['removed'])) + count($adds);
+                $item['projected'] = $projected;
+                $item['capped'] = (count($adds) + count($item['removed']) > 0) && $projected > self::MAX_IMPORT;
             }
             $out['apps'][$uuid] = $item;
         }
