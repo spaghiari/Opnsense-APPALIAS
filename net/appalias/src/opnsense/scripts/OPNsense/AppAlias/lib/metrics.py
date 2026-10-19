@@ -31,6 +31,18 @@ metrics.json, à côté de state.json ; status.py le relit.
 
 Résumé d'une fenêtre : count (mesures depuis le démarrage), window (mesures
 de la fenêtre), avg_ms et p95_ms (rang le plus proche) sur la fenêtre.
+
+Résolution proactive : compteurs depuis le démarrage (champ optionnel
+« proactive », absent tant qu'aucune sonde n'a été envoyée) : sent (requêtes
+réellement envoyées à l'amont : un rejeu TCP après troncature compte pour une
+requête de plus ; les sondes reportées par cooldown ou abandonnées avant tout
+envoi ne comptent pas), ok, empty (réponse sans adresse ou NXDOMAIN), fail,
+added (adresses ajoutées aux tables par le proactif).
+Relation : sent = ok + empty + fail + rejets « stale » (réponse jetée car la
+configuration a changé pendant la sonde) + rejeux TCP intermédiaires (la
+requête UDP tronquée est comptée dans sent sans résultat propre). fail compte
+aussi les sondes échouées avant tout envoi (nom invalide, erreur interne) : dans
+ce cas fail dépasse sent d'autant.
 """
 
 import json
@@ -41,6 +53,7 @@ from collections import deque
 
 WINDOW = 256
 FILENAME = "metrics.json"
+PROACTIVE_COUNTERS = ("sent", "ok", "empty", "fail", "added")
 
 
 class Window:
@@ -67,6 +80,7 @@ class Metrics:
         self.size = size
         self.upstreams = {}      # « host@port » -> Window
         self.pf = Window(size)
+        self.proactive = dict.fromkeys(PROACTIVE_COUNTERS, 0)
         self.version = 0         # incrémenté à chaque mesure (écriture si changé)
 
     def add_upstream(self, key, ms):
@@ -80,6 +94,12 @@ class Metrics:
         self.pf.add(ms)
         self.version += 1
 
+    def add_proactive(self, counter, n=1):
+        """Incrémente un compteur de la résolution proactive (PROACTIVE_COUNTERS)."""
+        if counter in self.proactive and n > 0:
+            self.proactive[counter] += n
+            self.version += 1
+
     def retain(self, keys):
         """Oublie les amonts qui ne sont plus configurés."""
         for key in list(self.upstreams):
@@ -88,9 +108,12 @@ class Metrics:
                 self.version += 1
 
     def to_dict(self):
-        return {"window": self.size,
-                "upstreams": {k: w.summary() for k, w in sorted(self.upstreams.items())},
-                "pf": self.pf.summary()}
+        out = {"window": self.size,
+               "upstreams": {k: w.summary() for k, w in sorted(self.upstreams.items())},
+               "pf": self.pf.summary()}
+        if self.proactive["sent"]:
+            out["proactive"] = dict(self.proactive)
+        return out
 
 
 def path_for(state_path):

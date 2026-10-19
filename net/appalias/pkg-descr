@@ -5,8 +5,8 @@ resolved, and CIDR networks can be added by hand. The plugin creates no
 rules: use the aliases in your own block, pass or policy routing rules.
 
 Applications can be imported from a snapshot of
-v2fly/domain-list-community, embedded in the package or downloaded daily
-from GitHub (optional). Imported applications follow the catalog
+v2fly/domain-list-community, embedded in the package or downloaded from
+GitHub when it changes (checked hourly by default, optional). Imported applications follow the catalog
 automatically: new rules are added, rules removed from the catalog are
 removed, each change is logged and can be undone.
 
@@ -20,6 +20,39 @@ WWW: https://github.com/spaghiari/Opnsense-APPALIAS
 
 Plugin Changelog
 ================
+
+0.7
+
+* Proactive resolution (on by default, also after an upgrade): the daemon
+  itself resolves, at regular intervals, the names of the domain: and full:
+  rules of the enabled applications (and, for domain: rules, the prefixes
+  of the "Proactive prefixes" setting, www by default) to fill the pf
+  aliases in advance, as a complement to the DNS relay. Settings: enable,
+  minimum and maximum interval (300 and 3600 s by default), prefixes. Per
+  application: "Proactive resolution" checkbox (badge in the grid). Names
+  on shared platforms, regexp: and keyword: rules are never probed. 256
+  names per application and 5000 in total at most. Counters (sent, ok,
+  empty, failed, added) in the relay metrics.
+* Model 0.6.0: proactive_enabled, proactive_interval_min,
+  proactive_interval_max, proactive_prefixes and proactive per application
+  (migration: enabled everywhere).
+* Catalog, one gesture: adding an application is a name and an Add button,
+  without checkboxes. The server computes the default selection (no shared
+  platforms, no refused rules, ads excluded), the application follows the
+  catalog by default, and the configuration is applied automatically.
+* Online catalog check every hour by default (one API call per check; the
+  archive is downloaded only when the list changed). daily and manual stay
+  available; existing installations set to daily move to hourly on upgrade.
+* Catalog follow applies a full export without reloading the firewall
+  filter (no more alias sync), and applies nothing when the plugin is
+  disabled (configuration saved, undoable).
+* Shared platforms: dedicated sub-domains (youtubei.googleapis.com,
+  yt3.googleusercontent.com) are included; whole parent domains of
+  platforms (googleapis.com...) stay excluded; multi-tenant spaces
+  (s3.amazonaws.com, blob.core.windows.net, storage.googleapis.com,
+  github.io, workers.dev) cannot be taken as a whole.
+* Warning "Catalog update paused" in the grid when a followed application
+  would exceed 1000 rules.
 
 0.6
 

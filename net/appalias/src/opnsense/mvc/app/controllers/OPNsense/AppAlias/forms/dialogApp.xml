@@ -47,6 +47,12 @@
         <help>After each catalog update, new rules of the catalog lists of this application are added and rules removed from the catalog are removed, then applied without a click. Rules added by hand are never changed. Each change is listed in the Catalog tab (Automatic updates) and can be undone. Unchecked: changes wait in the catalog updates to review.</help>
     </field>
     <field>
+        <id>app.proactive</id>
+        <label>Proactive resolution</label>
+        <type>checkbox</type>
+        <help>The relay resolves the "domain:" and "full:" names of this application at regular intervals to fill its alias in advance (only if proactive resolution is enabled in Settings). Dynamic names, regexp/keyword rules and shared platforms are not covered.</help>
+    </field>
+    <field>
         <id>app.families</id>
         <label>Address families</label>
         <type>dropdown</type>

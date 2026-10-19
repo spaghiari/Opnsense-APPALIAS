@@ -406,7 +406,7 @@ class LifecycleTests(unittest.TestCase):
         cfg = make_config(free_port(), [self.upstream.port], [
             app("TEST", ["example.com"], networks=["198.51.100.0/24"]),
             app("OFF", ["example.org"], enabled=False),
-        ])
+        ], proactive_enabled=False)   # l'horloge saute de 100000 s : les sondes proactives seraient échues
         h = RelayHarness(cfg, self.tmp.name, fake, clock=lambda: now[0], state=state)
         try:
             # au démarrage : replace (IP valides non exclues + CIDR), flush des désactivées
@@ -430,7 +430,8 @@ class LifecycleTests(unittest.TestCase):
 
             # rechargement (équivalent SIGHUP) : nouvelle app, replace de toutes les tables
             new_cfg = make_config(h.port, [self.upstream.port], [
-                app("TEST", ["example.com"]), app("NEW", ["example.net"])])
+                app("TEST", ["example.com"]), app("NEW", ["example.net"])],
+                proactive_enabled=False)
             with open(h.config_path, "w", encoding="utf-8") as fh:
                 json.dump(new_cfg, fh)
             h.call(h.relay.reload())

@@ -172,13 +172,19 @@
             refusedTld: "{{ lang._('Refused: a domain rule on a whole top-level domain. Use full: instead.')|escape_js }}",
             refusedShared: "{{ lang._('Refused: a domain rule on a shared platform. Use full: or a dedicated sub-domain.')|escape_js }}",
             refusedComma: "{{ lang._('Refused: a comma cannot be stored in the rule list.')|escape_js }}",
-            discovery: "{{ lang._('Discovery rules: kept, but never applied by the relay.')|escape_js }}",
-            all: "{{ lang._('all')|escape_js }}",
-            none: "{{ lang._('none')|escape_js }}",
-            selected: "{{ lang._('selected rules:')|escape_js }}",
             tooMany: "{{ lang._('Too many rules for one import (1000 at most).')|escape_js }}",
-            many: "{{ lang._('Large selection: the alias may receive many addresses.')|escape_js }}",
-            saved: "{{ lang._('Application saved. Click Apply on the Applications tab to create or update the alias.')|escape_js }}",
+            followedRules: "{{ lang._('rules followed:')|escape_js }}",
+            followedList: "{{ lang._('Rules followed')|escape_js }}",
+            excludedList: "{{ lang._('Rules not followed')|escape_js }}",
+            exclDiscovery: "{{ lang._('discovery rule')|escape_js }}",
+            exclAds: "{{ lang._('advertising')|escape_js }}",
+            exclShared: "{{ lang._('shared platform')|escape_js }}",
+            exclRefused: "{{ lang._('refused')|escape_js }}",
+            adding: "{{ lang._('Adding the application and applying the configuration...')|escape_js }}",
+            addedApplied: "{{ lang._('Application added and applied. It now updates itself with the catalog.')|escape_js }}",
+            addedNotApplied: "{{ lang._('Application added, but applying the configuration failed. Click Apply to retry.')|escape_js }}",
+            capped: "{{ lang._('Catalog update paused: this application would exceed 1000 rules')|escape_js }}",
+            cappedTrim: "{{ lang._('Trim its rules to resume.')|escape_js }}",
             failed: "{{ lang._('Not saved:')|escape_js }}",
             updates: "{{ lang._('catalog updates')|escape_js }}",
             added: "{{ lang._('New in the catalog')|escape_js }}",
@@ -272,6 +278,8 @@
             dCoveredHelp: "{{ lang._('These names are in a CNAME chain that goes through a name of the same application: the relay already adds their addresses to the alias. Nothing to do.')|escape_js }}",
             auto: "{{ lang._('auto')|escape_js }}",
             autoHelp: "{{ lang._('Follows the catalog automatically: catalog changes are applied after each catalog update.')|escape_js }}",
+            proactive: "{{ lang._('proactive')|escape_js }}",
+            proactiveHelp: "{{ lang._('Proactive resolution: the relay resolves the names of this application at regular intervals.')|escape_js }}",
             fNone: "{{ lang._('No automatic change yet.')|escape_js }}",
             fUndo: "{{ lang._('Undo')|escape_js }}",
             fUndone: "{{ lang._('undone')|escape_js }}",
@@ -288,14 +296,7 @@
             fUpdated: "{{ lang._('application(s) following the catalog updated and applied.')|escape_js }}",
             fErrors: "{{ lang._('application(s) not updated automatically, see the log.')|escape_js }}"
         };
-        const KIND_LABELS = {
-            domain: "{{ lang._('domain: (domain and sub-domains)')|escape_js }}",
-            full: "{{ lang._('full: (exact name)')|escape_js }}",
-            keyword: "{{ lang._('keyword: (discovery rule)')|escape_js }}",
-            regexp: "{{ lang._('regexp: (discovery rule)')|escape_js }}"
-        };
         const MAX_IMPORT = 1000;
-        const WARN_IMPORT = 300;
 
         let appStatus = {};
         let catalogDiff = {};
@@ -402,10 +403,19 @@
                         if (follow) {
                             out.append($('<span class="label label-primary"></span>').attr('title', T.autoHelp).text(T.auto));
                         }
+                        // badge seulement si le champ est fourni par la grille et actif
+                        if (row.proactive !== undefined && isOn(row.proactive)) {
+                            out.append($('<span class="label label-default"></span>').attr('title', T.proactiveHelp).text(T.proactive));
+                        }
                         let d = catalogDiff[row.uuid];
                         if (d && d.error) {
                             out.append(
                                 $('<i class="fa fa-exclamation-triangle text-warning"></i>').attr('title', T.catalogError + ' ' + d.error)
+                            );
+                        } else if (d && follow && d.capped) {
+                            out.append(
+                                $('<i class="fa fa-exclamation-triangle text-warning"></i>')
+                                    .attr('title', T.capped + ' (' + parseInt(d.projected || 0) + '). ' + T.cappedTrim)
                             );
                         } else if (d && !follow) {
                             // diff manuel : seulement pour les applications qui ne suivent pas le catalogue
@@ -442,10 +452,11 @@
                         return text;
                     }
                 },
-                // Case « Follow catalog automatically » : seulement pour une application issue du catalogue.
+                // Case « Follow catalog automatically » : seulement pour une ancienne application
+                // du catalogue qui ne suit plus (catalog_follow=0), pour la remettre en automatique.
                 onBeforeRenderDialog: function (payload) {
                     let app = (payload && payload.frm_DialogApp && payload.frm_DialogApp.app) || {};
-                    $('[id="row_app.catalog_follow"]').toggle(hasValues(app.catalog_refs));
+                    $('[id="row_app.catalog_follow"]').toggle(hasValues(app.catalog_refs) && !isOn(app.catalog_follow));
                     return $.Deferred().resolve();
                 }
             }
@@ -799,15 +810,52 @@
             return '';
         }
 
+        // Règles suivies par défaut (même sélection que le serveur) ; raison d'exclusion sinon.
+        function exclusionOf(rule) {
+            if (rule.refused) {
+                return T.exclRefused + ': ' + refusalText(rule);
+            }
+            if (rule.discovery) {
+                return T.exclDiscovery;
+            }
+            if (rule.shared) {
+                return T.exclShared;
+            }
+            if ((rule.attrs || []).indexOf('ads') !== -1) {
+                return T.exclAds;
+            }
+            if (String(rule.rule || '').indexOf(',') !== -1) {
+                return T.exclRefused + ': ' + T.refusedComma;
+            }
+            return '';
+        }
+
+        function followedCount() {
+            if (!preview) {
+                return 0;
+            }
+            return (preview.rules || []).filter(function (rule) { return exclusionOf(rule) === ''; }).length;
+        }
+
         function updateSelection() {
-            let n = $('#catalog-rules input.appalias-rule:checked').length;
-            let box = $('#catalog-count').removeClass('text-warning text-danger').text(T.selected + ' ' + n);
+            let n = followedCount();
+            let box = $('#catalog-count').removeClass('text-danger').text(T.followedRules + ' ' + n);
             if (n > MAX_IMPORT) {
                 box.addClass('text-danger').append(' - ').append(document.createTextNode(T.tooMany));
-            } else if (n > WARN_IMPORT) {
-                box.addClass('text-warning').append(' - ').append(document.createTextNode(T.many));
             }
             $('#catalog-import').prop('disabled', n === 0 || n > MAX_IMPORT || !preview || !preview.importable);
+        }
+
+        function renderRuleLine(rule, reason) {
+            let line = $('<div></div>');
+            line.append($('<code></code>').text(rule.rule));
+            (rule.attrs || []).forEach(function (attr) {
+                line.append(' ').append($('<span class="label label-default"></span>').text('@' + attr));
+            });
+            if (reason !== '') {
+                line.addClass('text-muted').append(' ').append($('<small></small>').text('(' + reason + ')'));
+            }
+            return line;
         }
 
         function renderPreview() {
@@ -825,83 +873,29 @@
                 notes.append($('<div class="text-muted"></div>').text(T.unknown + ' ' + parseInt(data.unknown)));
             }
 
-            let groups = {domain: [], full: [], keyword: [], regexp: []};
-            (data.rules || []).forEach(function (rule, idx) {
-                if (groups[rule.kind] !== undefined) {
-                    groups[rule.kind].push([rule, idx]);
-                }
+            // liste en lecture seule : règles suivies, puis règles exclues en grisé avec la raison
+            let followed = [];
+            let excluded = [];
+            (data.rules || []).forEach(function (rule) {
+                let reason = exclusionOf(rule);
+                (reason === '' ? followed : excluded).push([rule, reason]);
             });
             let box = $('#catalog-rules').empty();
-            ['domain', 'full', 'keyword', 'regexp'].forEach(function (kind) {
-                if (!groups[kind].length) {
-                    return;
-                }
-                let group = $('<div></div>').attr('data-kind', kind);
-                let head = $('<div class="appalias-group-head"></div>').appendTo(group);
-                head.append($('<strong></strong>').text(KIND_LABELS[kind] + ' (' + groups[kind].length + ')'));
-                let selAll = $('<a href="#"></a>').text(T.all);
-                let selNone = $('<a href="#"></a>').text(T.none);
-                head.append(' ').append(selAll).append(' / ').append(selNone);
-                selAll.on('click', function (e) {
-                    e.preventDefault();
-                    group.find('input.appalias-rule:enabled').prop('checked', true);
-                    updateSelection();
-                });
-                selNone.on('click', function (e) {
-                    e.preventDefault();
-                    group.find('input.appalias-rule').prop('checked', false);
-                    updateSelection();
-                });
-                if (kind === 'keyword' || kind === 'regexp') {
-                    group.append($('<div class="text-muted"></div>').text(T.discovery));
-                }
-                groups[kind].forEach(function (pair) {
-                    let rule = pair[0];
-                    let attrs = rule.attrs || [];
-                    let discovery = !!rule.discovery;
-                    let checked = !discovery && !rule.shared && !rule.refused && attrs.indexOf('ads') === -1;
-                    let input = $('<input type="checkbox" class="appalias-rule"/>')
-                        .attr('data-idx', pair[1])
-                        .prop('checked', checked)
-                        .prop('disabled', !!rule.refused || !data.importable);
-                    let label = $('<label></label>').append(input).append(' ').append($('<code></code>').text(rule.rule));
-                    attrs.forEach(function (attr) {
-                        label.append($('<span class="label label-default"></span>').text('@' + attr));
-                    });
-                    if (rule.shared) {
-                        label.append(' ').append(
-                            $('<span class="text-warning"></span>').attr('title', T.sharedHelp)
-                                .append('<i class="fa fa-share-alt"></i> ')
-                                .append(document.createTextNode(T.sharedCdn))
-                        );
-                    }
-                    if (rule.refused) {
-                        label.attr('title', refusalText(rule)).addClass('text-muted');
-                    }
-                    let row = $('<div class="checkbox"></div>').append(label);
-                    if (discovery) {
-                        row.addClass('appalias-discovery');
-                    }
-                    group.append(row);
-                });
-                box.append(group);
+            box.append($('<strong></strong>').text(T.followedList + ' (' + followed.length + ')'));
+            followed.forEach(function (pair) {
+                box.append(renderRuleLine(pair[0], ''));
             });
+            if (excluded.length) {
+                box.append($('<strong class="appalias-group-head" style="display: block"></strong>')
+                    .text(T.excludedList + ' (' + excluded.length + ')'));
+                excluded.forEach(function (pair) {
+                    box.append(renderRuleLine(pair[0], pair[1]));
+                });
+            }
+            $('#catalog-rules-box').prop('open', false);
 
             $('#catalog-name').val(data.suggested_name || '');
-            $('input[name="catalog-target"][value="new"]').prop('checked', true);
             updateSelection();
-        }
-
-        function loadApps(selected) {
-            ajaxCall('/api/appalias/settings/searchApp', {current: 1, rowCount: -1, sort: {name: 'asc'}}, function (data, status) {
-                let sel = $('#catalog-app').empty();
-                ((data && data.rows) || []).forEach(function (row) {
-                    sel.append($('<option></option>').attr('value', row.uuid).text(row.name));
-                });
-                if (selected) {
-                    sel.val(selected);
-                }
-            });
         }
 
         function openPreview(ref) {
@@ -913,59 +907,57 @@
                 }
                 preview = data;
                 renderPreview();
-                loadApps();
                 $('#catalogPreview').modal('show');
             });
         }
 
-        $('#catalog-rules').on('change', 'input.appalias-rule', updateSelection);
+        // Après un import : applique la configuration (même appel que le bouton Apply),
+        // puis recharge la grille. L'application reste enregistrée si l'application échoue.
+        function applyAfterImport(warning) {
+            let msg = $('#catalog-message').removeClass('alert-danger alert-warning').addClass('alert-info')
+                .text(T.adding).show();
+            ajaxCall('/api/appalias/service/reconfigure', {}, function (data, status) {
+                let ok = data && String(data.status || '').toLowerCase().trim() === 'ok';
+                updateServiceControlUI('appalias');
+                refreshRelayBadge();
+                refreshStatus(false);
+                refreshDiff();
+                if (ok) {
+                    msg.removeClass('alert-danger alert-warning').addClass('alert-info').text(T.addedApplied);
+                    showApplied();
+                    loadUnboundStatus();
+                } else {
+                    let detail = String((data && (data.status_msg || data.message)) || '');
+                    msg.removeClass('alert-info').addClass('alert-danger')
+                        .text(T.addedNotApplied + (detail !== '' ? ' ' + detail : ''));
+                    $('#appaliasChangeMessage').show();
+                }
+                if (warning) {
+                    msg.append($('<div></div>').text(String(warning)));
+                }
+                msg.show();
+                // la grille est rechargée une seule fois, par refreshDiff()
+            });
+        }
 
         $('#catalog-import').on('click', function () {
             if (!preview) {
                 return;
             }
-            let rules = [];
-            let adsTotal = 0;
-            let adsChecked = 0;
-            $('#catalog-rules input.appalias-rule').each(function () {
-                let rule = preview.rules[parseInt($(this).attr('data-idx'))];
-                let isAds = (rule.attrs || []).indexOf('ads') !== -1;
-                if (isAds) {
-                    adsTotal++;
-                }
-                if ($(this).prop('checked')) {
-                    rules.push(rule.rule);
-                    if (isAds) {
-                        adsChecked++;
-                    }
-                }
-            });
-            // Toutes les règles @ads décochées : la référence l'enregistre (« netflix@-ads »),
-            // les mises à jour du catalogue ne les reproposeront pas.
-            let ref = preview.ref;
-            if (adsTotal > 0 && adsChecked === 0 && ref.split('@').indexOf('-ads') === -1) {
-                ref = ref + '@-ads';
-            }
-            let mode = $('input[name="catalog-target"]:checked').val() === 'merge' ? 'merge' : 'new';
-            let payload = {ref: ref, mode: mode, rules: rules};
-            if (mode === 'merge') {
-                payload.app_uuid = String($('#catalog-app').val() || '');
-            } else {
-                payload.name = String($('#catalog-name').val() || '').trim();
-            }
+            // pas de clé « rules » : le serveur applique la sélection par défaut
+            let payload = {
+                ref: preview.ref,
+                mode: 'new',
+                name: String($('#catalog-name').val() || '').trim()
+            };
             $('#catalog-import').prop('disabled', true);
+            $('#catalog-preview-error').hide().empty();
             ajaxCall('/api/appalias/catalog/import', payload, function (data, status) {
                 if (data && data.result === 'saved') {
                     $('#catalogPreview').modal('hide');
-                    let msg = $('#catalog-message').removeClass('alert-danger').addClass('alert-info').text(T.saved);
-                    if (data.warning) {
-                        msg.append($('<div></div>').text(String(data.warning)));
-                    }
-                    msg.show();
-                    $('#appaliasChangeMessage').show();
-                    refreshDiff();
-                    reloadGridIfLoaded();
+                    applyAfterImport(data.warning);
                 } else {
+                    // nom en doublon, trop de règles... : l'utilisateur corrige et recommence
                     $('#catalog-preview-error').text(T.failed + ' ' + errorText(data)).show();
                     updateSelection();
                 }
@@ -2038,8 +2030,8 @@
             <p>
                 The <i>Catalog</i> tab searches a snapshot of
                 <a href="https://github.com/v2fly/domain-list-community" target="_blank" rel="noopener noreferrer">v2fly domain-list-community</a>
-                (MIT License): embedded in the package, or downloaded daily when the online update is enabled in
-                <i>Settings</i>. The preview lets you choose the rules to import:
+                (MIT License): embedded in the package, or checked hourly by default when the online update is enabled in
+                <i>Settings</i> (downloaded only when the list changed). The preview lets you choose the rules to import:
                 rules tagged <code>@ads</code> and rules on shared platforms (CDN) are unchecked by default;
                 <code>keyword:</code> and <code>regexp:</code> are discovery rules, kept but never applied by the relay.
             </p>
@@ -2102,28 +2094,21 @@
             </div>
             <div class="modal-body">
                 <div id="catalog-notes"></div>
-                <div id="catalog-rules" class="appalias-rules"></div>
-                <hr/>
+                <div class="form-group">
+                    <label for="catalog-name">{{ lang._('Application name') }}</label>
+                    <input type="text" id="catalog-name" class="form-control" maxlength="31"/>
+                </div>
                 <p id="catalog-count"></p>
-                <div class="radio">
-                    <label>
-                        <input type="radio" name="catalog-target" value="new" checked="checked"/>
-                        {{ lang._('New application, named:') }}
-                    </label>
-                    <input type="text" id="catalog-name" class="form-control" maxlength="31" style="display: inline-block; width: auto"/>
-                </div>
-                <div class="radio">
-                    <label>
-                        <input type="radio" name="catalog-target" value="merge"/>
-                        {{ lang._('Merge into the application:') }}
-                    </label>
-                    <select id="catalog-app" class="form-control" style="display: inline-block; width: auto"></select>
-                </div>
+                <details id="catalog-rules-box">
+                    <summary>{{ lang._('Show the rules') }}</summary>
+                    <div id="catalog-rules" class="appalias-rules"></div>
+                </details>
+                <p class="text-muted">{{ lang._('The application is created, applied and then kept up to date with the catalog automatically.') }}</p>
                 <div id="catalog-preview-error" class="alert alert-danger" style="display: none" role="alert"></div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-default" data-dismiss="modal">{{ lang._('Cancel') }}</button>
-                <button type="button" class="btn btn-primary" id="catalog-import">{{ lang._('Import') }}</button>
+                <button type="button" class="btn btn-primary" id="catalog-import">{{ lang._('Add') }}</button>
             </div>
         </div>
     </div>

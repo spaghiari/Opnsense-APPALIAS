@@ -116,3 +116,27 @@ def touches(value, platforms):
     sous-domaine) : signalé dans l'interface, décoché par défaut."""
     value = normalize(value)
     return bool(value) and (covers_platform(value, platforms) or under_platform(value, platforms))
+
+
+def excluded(kind, value, platforms):
+    """Raison d'exclusion automatique d'une règle (« tld », « shared ») ou None.
+
+    Tout résultat non nul exclut la règle partout (sélection automatique de
+    l'aperçu et de l'import, suivi du catalogue, requêtes proactives) ; seul
+    le drapeau affiché de l'aperçu distingue « shared » de « tld ».
+
+    Seuls les genres « domain » et « full » sont concernés. Un nom sans point
+    est un TLD ; un nom égal à une plateforme partagée ou parent de l'une
+    d'elles est « shared ». Un sous-domaine strict d'une plateforme
+    (« youtubei.googleapis.com ») est dédié : inclus (None). À la différence
+    de touches(), utilisé par la découverte, qui le signale."""
+    if kind not in ("domain", "full"):
+        return None
+    value = normalize(value)
+    if not value:
+        return None
+    if is_tld(value):
+        return "tld"
+    if covers_platform(value, platforms):
+        return "shared"
+    return None

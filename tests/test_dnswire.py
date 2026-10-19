@@ -180,5 +180,80 @@ class ServfailTests(unittest.TestCase):
         self.assertIsNone(dnswire.make_servfail(b"\x00"))
 
 
+class BuildQueryTests(unittest.TestCase):
+    def test_roundtrip(self):
+        msg = dnswire.build_query("WWW.Example.com.", "A", qid=0x4242)
+        qid, flags, qd, an, ns, ar = struct.unpack("!HHHHHH", msg[:12])
+        self.assertEqual((qid, qd, an, ns, ar), (0x4242, 1, 0, 0, 1))
+        self.assertEqual(flags, 0x0100)  # RD seul, pas de QR
+        resp = dnswire.parse_message(msg)
+        self.assertEqual((resp.id, resp.qname, resp.qtype), (0x4242, "www.example.com", TYPE_A))
+        self.assertFalse(resp.is_response)
+        self.assertEqual(resp.rcode, 0)
+        self.assertIsNone(dnswire.parse_response(msg))
+
+    def test_aaaa_and_int_type(self):
+        for qtype in ("AAAA", "aaaa", TYPE_AAAA):
+            msg = dnswire.build_query("example.com", qtype, qid=1)
+            self.assertEqual(dnswire.parse_message(msg).qtype, TYPE_AAAA)
+        self.assertEqual(dnswire.parse_message(dnswire.build_query("example.com", TYPE_A)).qtype, TYPE_A)
+
+    def test_opt_1232(self):
+        msg = dnswire.build_query("example.com", "A", qid=5)
+        self.assertEqual(dnswire.udp_payload_size(msg), 1232)
+        # OPT en fin de message : racine, type 41, classe 1232, TTL 0, rdlength 0
+        self.assertEqual(msg[-11:], b"\x00" + struct.pack("!HHIH", 41, 1232, 0, 0))
+
+    def test_question_key_matches_response(self):
+        msg = dnswire.build_query("www.example.com", "A", qid=0x0BAD)
+        resp = build_response("www.example.com", [("www.example.com", TYPE_A, 60, "192.0.2.1")],
+                              qid=0x0BAD)
+        self.assertEqual(dnswire.question_key(msg), dnswire.question_key(resp))
+        self.assertEqual(dnswire.question_key(msg), (0x0BAD, "www.example.com"))
+
+    def test_same_wire_as_testutil(self):
+        msg = dnswire.build_query("example.com", "A", qid=0x1234)
+        self.assertEqual(msg[12:-11], encode_name("example.com") + struct.pack("!HH", TYPE_A, 1))
+
+    def test_qid_forced_and_random(self):
+        for qid in (0, 1, 0xFFFF):
+            self.assertEqual(dnswire.parse_message(dnswire.build_query("a.example", "A", qid=qid)).id, qid)
+        ids = {dnswire.parse_message(dnswire.build_query("a.example", "A")).id for _ in range(64)}
+        self.assertGreater(len(ids), 1)
+        self.assertTrue(all(0 <= i <= 0xFFFF for i in ids))
+
+    def test_name_forms(self):
+        self.assertEqual(dnswire.build_query("example.com.", "A", qid=1),
+                         dnswire.build_query("example.com", "A", qid=1))
+        root = dnswire.build_query(".", "A", qid=1)
+        self.assertEqual(dnswire.parse_message(root).qname, "")
+        label63 = "a" * 63
+        dnswire.build_query(label63 + ".example", "A")
+        # 253 octets en notation pointée : limite acceptée
+        name253 = ".".join(["a" * 61] * 4 + ["b" * 5])
+        self.assertEqual(len(name253), 253)
+        self.assertEqual(dnswire.parse_message(dnswire.build_query(name253, "A")).qname, name253)
+
+    def test_invalid_names(self):
+        too_long = ".".join(["a" * 61] * 4 + ["b" * 6])  # 254 caractères
+        self.assertEqual(len(too_long), 254)
+        for bad in ("", "a..b", ".example.com", "a" * 64 + ".com", too_long,
+                    "caf\u00e9.example", "a\x00b.example", "a\tb.example", "a b.example",
+                    "a\x7f.example", "..", None, b"example.com", 12):
+            with self.subTest(name=bad):
+                with self.assertRaises(ValueError):
+                    dnswire.build_query(bad, "A")
+
+    def test_invalid_type_and_qid(self):
+        for bad in ("TXT", "", 0, 65536, -1, None, 1.5, True):
+            with self.subTest(qtype=bad):
+                with self.assertRaises(ValueError):
+                    dnswire.build_query("example.com", bad)
+        for bad in (-1, 65536, "1", 1.5, True):
+            with self.subTest(qid=bad):
+                with self.assertRaises(ValueError):
+                    dnswire.build_query("example.com", "A", qid=bad)
+
+
 if __name__ == "__main__":
     unittest.main()

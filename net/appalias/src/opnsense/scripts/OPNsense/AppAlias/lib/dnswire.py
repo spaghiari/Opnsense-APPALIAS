@@ -41,6 +41,7 @@ tronquée (TC=1, question seule), le client réessaie en TCP.
 """
 
 import ipaddress
+import secrets
 import struct
 from dataclasses import dataclass, field
 
@@ -53,10 +54,12 @@ MAX_MESSAGE = 65535
 MAX_RECORDS = 512
 MAX_POINTER_JUMPS = 16
 MAX_NAME_LENGTH = 255
+MAX_LABEL_LENGTH = 63
 MAX_CNAME_CHAIN = 16
 
 FLAG_QR = 0x8000
 FLAG_TC = 0x0200
+FLAG_RD = 0x0100
 
 HEADER = struct.Struct("!HHHHHH")
 RR_FIXED = struct.Struct("!HHIH")
@@ -284,6 +287,9 @@ def addresses(resp, names):
 TYPE_OPT = 41
 UDP_MIN_PAYLOAD = 512
 UDP_MAX_PAYLOAD = 4096
+QUERY_UDP_PAYLOAD = 1232  # taille UDP annoncée par build_query (évite la fragmentation IP)
+
+QUERY_TYPES = {"A": TYPE_A, "AAAA": TYPE_AAAA}
 
 
 def udp_payload_size(query):
@@ -389,3 +395,57 @@ def make_servfail(query):
         return HEADER.pack(qid, new_flags, count, 0, 0, 0) + question
     except Exception:
         return None
+
+
+def encode_name(name):
+    """Nom en format fil (labels sans compression), terminé par la racine.
+
+    Point final optionnel ; "." seul désigne la racine. Lève ValueError pour
+    un label vide hors racine, un label de plus de 63 octets, un nom de plus
+    de 255 octets une fois encodé (253 en notation pointée) ou un caractère
+    hors ASCII imprimable.
+    """
+    if not isinstance(name, str):
+        raise ValueError("nom invalide")
+    if name == ".":
+        return b"\x00"
+    if name.endswith("."):
+        name = name[:-1]
+    out = bytearray()
+    for label in name.split("."):
+        if not label:
+            raise ValueError("label vide")
+        if any(not 0x21 <= ord(ch) <= 0x7E for ch in label):
+            raise ValueError("caractère non ASCII imprimable dans le nom")
+        if len(label) > MAX_LABEL_LENGTH:
+            raise ValueError("label trop long")
+        out.append(len(label))
+        out.extend(label.encode("ascii"))
+    out.append(0)
+    if len(out) > MAX_NAME_LENGTH:
+        raise ValueError("nom trop long")
+    return bytes(out)
+
+
+def build_query(qname, qtype, qid=None):
+    """Requête DNS standard : RD, une question IN, OPT EDNS0 (UDP 1232).
+
+    qtype : entier (1 à 65535) ou "A"/"AAAA". qid : 16 bits, aléatoire
+    (secrets) si None. Lève ValueError si l'un des paramètres est invalide.
+    """
+    if isinstance(qtype, str):
+        code = QUERY_TYPES.get(qtype.strip().upper())
+        if code is None:
+            raise ValueError("type de requête non pris en charge")
+        qtype = code
+    elif isinstance(qtype, bool) or not isinstance(qtype, int) or not 1 <= qtype <= 0xFFFF:
+        raise ValueError("type de requête invalide")
+    if qid is None:
+        qid = secrets.randbits(16)
+    elif isinstance(qid, bool) or not isinstance(qid, int) or not 0 <= qid <= 0xFFFF:
+        raise ValueError("identifiant de requête invalide")
+    header = HEADER.pack(qid, FLAG_RD, 1, 0, 0, 1)
+    question = encode_name(qname) + Q_FIXED.pack(qtype, CLASS_IN)
+    # OPT (RFC 6891) : nom racine, type 41, classe = taille UDP, TTL 0, rdata vide
+    opt = b"\x00" + RR_FIXED.pack(TYPE_OPT, QUERY_UDP_PAYLOAD, 0, 0)
+    return header + question + opt

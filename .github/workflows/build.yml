@@ -48,6 +48,12 @@ jobs:
             sh -n "$f"
             echo "ok : $f"
           done
+      # PHP préinstallé sur le runner (rien n'est installé ici) ; l'échec de
+      # php -l sur un seul fichier fait échouer l'étape (xargs rend 123).
+      - name: php lint
+        run: |
+          php --version
+          find net -type f \( -name '*.php' -o -name '*.inc' \) -print0 | xargs -0 -n1 php -l
 
   # Construction du paquet NON signé. Aucun secret n'est disponible ici.
   build:

@@ -67,6 +67,11 @@ Depuis la racine du dépôt :
 python -I -B -m unittest discover -s tests
 ```
 
+Le job `test` de la CI vérifie aussi la syntaxe des scripts shell (`sh -n`) et
+celle de tous les fichiers PHP du plugin (`*.php` et `*.inc` sous `net/`, par
+`php -l`) : en local, `find net -type f \( -name '*.php' -o -name '*.inc' \)
+-print0 | xargs -0 -n1 php -l`.
+
 ## Licence
 
 En contribuant, vous acceptez que votre contribution soit publiée sous

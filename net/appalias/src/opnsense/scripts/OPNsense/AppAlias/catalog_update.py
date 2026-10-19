@@ -23,7 +23,8 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-"""Mise à jour en ligne du catalogue v2fly (option, activée par défaut, quotidienne).
+"""Mise à jour en ligne du catalogue v2fly (option, activée par défaut, vérification
+horaire par défaut ; l'archive n'est téléchargée que si la liste a changé).
 
   catalog_update.py update   télécharge le dernier commit et remplace le
                              catalogue téléchargé s'il passe les contrôles
@@ -61,8 +62,11 @@ exécutions simultanées.
 Après une mise à jour réussie (« updated »), main() lance catalog_follow.php
 run en tâche détachée (daemon -f, sans timeout : clé « follow » = started) :
 les applications qui suivent le catalogue (catalog_follow=1) reçoivent
-les nouveautés et sont appliquées, le détail est dans le journal du suivi ; pour les
-autres, les nouveautés apparaissent dans les « catalog updates » à valider.
+les nouveautés et sont appliquées (export complet, sans recharger le filtre
+pare-feu ; rien d'appliqué si le plugin est désactivé, la configuration est
+alors seulement enregistrée et annulable), le détail est dans le journal du
+suivi ; pour les autres, les nouveautés apparaissent dans les « catalog
+updates » à valider.
 """
 
 import base64

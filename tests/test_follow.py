@@ -31,7 +31,7 @@ LST = (
     "full:api.stream.example\n"
     "newcdn.example\n"
     "domain:cloudfront.net\n"
-    "full:edge.akamaized.net\n"
+    "full:akamaized.net\n"
     "keyword:stream\n"
     "ads.stream.example @ads\n"
     "[other]\n"
@@ -92,15 +92,22 @@ class PlanTests(unittest.TestCase):
 
     def test_guard_and_skipped_rules(self):
         ignored = follow.Ignored(["domain:noisy.example", "full:one.example", "bogus"])
-        p = self.plan(["domain:cloudfront.net", "domain:com", "full:d1.cloudfront.net",
+        p = self.plan(["domain:cloudfront.net", "domain:com", "full:d1.cloudfront.net", "full:cloudfront.net",
                        "keyword:stream", "regexp:^x$", "domain:a.noisy.example", "full:one.example",
                        "domain:ok.example"],
                       [], [], ignored=ignored)
-        self.assertEqual(p["add"], ["domain:ok.example"])
+        # sous-domaine dédié d'une plateforme : ajouté ; plateforme elle-même : sautée
+        self.assertEqual(sorted(p["add"]), ["domain:ok.example", "full:d1.cloudfront.net"])
         self.assertEqual(p["skipped"]["refused"], ["domain:cloudfront.net", "domain:com"])
-        self.assertEqual(p["skipped"]["shared"], ["full:d1.cloudfront.net"])
+        self.assertEqual(p["skipped"]["shared"], ["full:cloudfront.net"])
         self.assertEqual(p["skipped"]["discovery"], ["keyword:stream", "regexp:^x$"])
         self.assertEqual(p["skipped"]["ignored"], ["domain:a.noisy.example", "full:one.example"])
+
+    def test_tld_full_skipped(self):
+        # « tld » exclu du suivi comme « shared » (uniformité avec proactive.py)
+        p = self.plan(["full:com", "domain:ok.example"], [], [])
+        self.assertEqual(p["add"], ["domain:ok.example"])
+        self.assertEqual(p["skipped"]["shared"], ["full:com"])
 
     def test_comma_skipped(self):
         p = follow.plan_app([("regexp", "^a{1,2}$", frozenset()), ("domain", "x.example", frozenset())],
@@ -163,7 +170,7 @@ class CliPlanTests(unittest.TestCase):
         self.assertEqual(p["remove"], ["domain:old.example"])
         self.assertEqual(p["domains"], ["domain:stream.example", "full:mine.example", "domain:newcdn.example"])
         self.assertEqual(p["skipped"]["refused"], ["domain:cloudfront.net"])
-        self.assertEqual(p["skipped"]["shared"], ["full:edge.akamaized.net"])   # shared_extra pris en compte
+        self.assertEqual(p["skipped"]["shared"], ["full:akamaized.net"])   # shared_extra pris en compte
         self.assertEqual(p["skipped"]["discovery"], ["keyword:stream"])
 
     def test_plan_unknown_list_only_affects_its_app(self):
@@ -382,7 +389,7 @@ class ImportDefaultsTests(unittest.TestCase):
         self.assertEqual(p["add"], ["domain:ads.stream.example", "domain:newcdn.example",
                                     "domain:stream.example", "full:api.stream.example"])
         skipped = sorted(r for rules in p["skipped"].values() for r in rules)
-        self.assertEqual(skipped, ["domain:cloudfront.net", "full:edge.akamaized.net", "keyword:stream"])
+        self.assertEqual(skipped, ["domain:cloudfront.net", "full:akamaized.net", "keyword:stream"])
 
 
 if __name__ == "__main__":
