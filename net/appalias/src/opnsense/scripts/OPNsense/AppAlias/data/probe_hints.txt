@@ -1,0 +1,19 @@
+# Indices de résolution proactive par liste du catalogue v2fly (os-appalias,
+# lib/proactive.py).
+#
+# Format : « <liste>: nom1 nom2 ... » (une liste par ligne, « # » =
+# commentaire). Pour une application dont une référence du catalogue
+# (catalog_refs, partie avant « @ ») désigne la liste, le démon sonde ces noms
+# dès l'ajout, mais seulement ceux qui correspondent aux règles de
+# l'application : un nom hors règles n'est jamais sondé ni ajouté.
+#
+# Liste établie au mieux (endpoints publics connus des clients officiels) ;
+# un nom disparu ne coûte qu'une sonde vide, espacée par le backoff.
+
+signal: chat.signal.org cdn.signal.org cdn2.signal.org cdn3.signal.org storage.signal.org sfu.voip.signal.org updates2.signal.org contentproxy.signal.org textsecure-service.whispersystems.org
+whatsapp: web.whatsapp.com static.whatsapp.net media.fcdn.whatsapp.net g.whatsapp.net mmg.whatsapp.net v.whatsapp.net
+telegram: web.telegram.org api.telegram.org core.telegram.org venus.web.telegram.org
+discord: gateway.discord.gg cdn.discordapp.com media.discordapp.net discord.com status.discord.com
+twitch: gql.twitch.tv usher.ttvnw.net static-cdn.jtvnw.net pubsub-edge.twitch.tv irc-ws.chat.twitch.tv api.twitch.tv
+spotify: api.spotify.com open.spotify.com audio-fa.scdn.co i.scdn.co apresolve.spotify.com
+netflix: api-global.netflix.com ichnaea.netflix.com nrdp.nccp.netflix.com occ-0-1-1.1.nflxso.net

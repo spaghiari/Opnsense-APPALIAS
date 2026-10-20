@@ -151,6 +151,14 @@
             relCache: "{{ lang._('Cache: %s hits / %s misses (%s entries)')|escape_js }}",
             relDropped: "{{ lang._('Clients dropped: rate limit %s, not allowed %s')|escape_js }}",
             relPfBackend: "{{ lang._('pf backend:')|escape_js }}",
+            namesProbed: "{{ lang._('%s probed, %s seen')|escape_js }}",
+            namesHelp: "{{ lang._('Names resolved proactively (estimate) / names observed by the relay')|escape_js }}",
+            discLabel: "{{ lang._('Discovery')|escape_js }}",
+            discDeep: "{{ lang._('deep')|escape_js }}",
+            discOn: "{{ lang._('on')|escape_js }}",
+            discOff: "{{ lang._('off')|escape_js }}",
+            discDetail: "{{ lang._('%s labels, %s targets, %s wildcard domains')|escape_js }}",
+            relSeeded: "{{ lang._('seeded %s')|escape_js }}",
             relAsn: "{{ lang._('ASN prefixes: %s in %s aliases')|escape_js }}",
             asnSuffix: "{{ lang._('ASN')|escape_js }}",
             asnSuffixHelp: "{{ lang._('prefixes from ASN sources')|escape_js }}",
@@ -344,6 +352,17 @@
                         }
                         return out.prop('outerHTML');
                     },
+                    names: function (column, row) {
+                        let st = appStatus[row.uuid];
+                        if (st === undefined) {
+                            return '<span class="text-muted">-</span>';
+                        }
+                        return $('<span></span>').attr('title', T.namesHelp)
+                            .text(T.namesProbed
+                                .replace('%s', function () { return String(parseInt(st.probe_names || 0)); })
+                                .replace('%s', function () { return String(parseInt(st.seen_names || 0)); }))
+                            .prop('outerHTML');
+                    },
                     ipcount: function (column, row) {
                         let st = appStatus[row.uuid];
                         if (st === undefined) {
@@ -529,6 +548,15 @@
                     parts.push(latencyText(T.latPf, lat.pf));
                     box.text(parts.join(', ')).show();
                 }
+                let disc = $('#discovery-summary').empty().hide();
+                if (data.discovery) {
+                    let dd = data.discovery;
+                    disc.text(T.discLabel + ': ' + T.discDeep + ' ' + (dd.deep ? T.discOn : T.discOff) + ', ' +
+                        T.discDetail
+                            .replace('%s', function () { return String(parseInt(dd.labels || 0)); })
+                            .replace('%s', function () { return String(parseInt(dd.targets || 0)); })
+                            .replace('%s', function () { return String((dd.wildcards || []).length); })).show();
+                }
                 // Seconde ligne : cache de reponses, clients ecartes, backend pf, prefixes ASN
                 let relay = $('#relay-summary').empty().hide();
                 let rparts = [];
@@ -549,6 +577,11 @@
                 if (lat.asn) {
                     rparts.push(T.relAsn.replace('%s', parseInt(lat.asn.prefixes || 0))
                         .replace('%s', parseInt(lat.asn.tables || 0)));
+                }
+                // amorçage depuis le cache d'Unbound : compteur discovery.seeded de metrics.json
+                let disc = lat.discovery || {};
+                if (disc.seeded !== undefined) {
+                    rparts.push(T.relSeeded.replace('%s', function () { return String(parseInt(disc.seeded || 0)); }));
                 }
                 if (rparts.length) {
                     relay.text(rparts.join(', ')).show();
@@ -1310,6 +1343,7 @@
                 <th data-column-id="asns" data-type="string" data-visible="false">{{ lang._('ASNs') }}</th>
                 <th data-column-id="networks" data-type="string" data-visible="false">{{ lang._('Networks') }}</th>
                 <th data-column-id="families" data-type="string">{{ lang._('Families') }}</th>
+                <th data-column-id="names" data-type="string" data-formatter="names" data-sortable="false" data-width="9em">{{ lang._('Names') }}</th>
                 <th data-column-id="ipcount" data-type="string" data-formatter="ipcount" data-sortable="false">{{ lang._('IPs v4/v6') }}</th>
                 <th data-column-id="commands" data-width="9em" style="min-width: 9em; white-space: nowrap" data-formatter="commands" data-sortable="false">{{ lang._('Commands') }}</th>
             </tr>
@@ -1389,6 +1423,7 @@
                 <div class="panel-body">
                     <p id="upstream-summary" style="display: none"></p>
                     <p id="latency-summary" class="text-muted" style="display: none"></p>
+                    <p id="discovery-summary" class="text-muted" style="display: none"></p>
                     <p id="relay-summary" class="text-muted" style="display: none"></p>
                     <p id="unbound-summary" class="text-muted"></p>
                     <div id="unbound-root-warning" class="alert alert-info" style="display: none" role="alert"></div>
@@ -1469,6 +1504,24 @@
                 <b>ASN sources</b>: enter the ASNs of an application (for example <code>AS2906</code>) in its
                 dialog; the prefixes announced by these ASNs (RIPEstat) are added to its alias, in addition to the
                 resolved addresses. Do not use ASNs for applications hosted on shared platforms (CDN, cloud).
+            </p>
+
+            <h2>{{ lang._('Why an alias fills up by itself') }}</h2>
+            <p>
+                Five mechanisms fill an alias before any client asks. (1) As soon as an application is added, the
+                first proactive pass runs at once instead of waiting for the next interval. (2) Deep discovery probes
+                a built-in dictionary of about 90 service labels (<code>api</code>, <code>chat</code>,
+                <code>cdn</code>, <code>storage</code>...) in front of each <code>domain:</code> rule; domains that
+                answer any name (DNS wildcard) are detected and skipped. (3) Built-in hints cover popular
+                applications (Signal, WhatsApp, Telegram, Discord, Twitch, Spotify, Netflix) and are always filtered
+                by the rules of the application. (4) Every name observed by the relay is remembered (1024 per
+                application, 30 days) and probed again at each pass, so the alias is filled again after a restart
+                or an expiry. (5) At startup, after Apply and every hour, the Unbound cache is read and every name
+                already resolved that matches an application enters its alias at once.
+            </p>
+            <p>
+                The relay adds the address <b>before</b> the DNS answer is returned to the client: policy routing
+                therefore works from the very first connection when the clients resolve through Unbound.
             </p>
 
             <h2>{{ lang._('2. Catalog') }}</h2>

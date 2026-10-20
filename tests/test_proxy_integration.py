@@ -254,6 +254,31 @@ class ProxyIntegrationTests(unittest.TestCase):
         self.harness = RelayHarness(cfg, self.tmp.name, fake, asn_cache=asn_cache)
         return self.harness
 
+    def test_nom_vu_enregistre_puis_cible(self):
+        fake = FakePf()
+        h = self.start([app("TEST", ["domain:example.com"], families="inet")], fake,
+                       proactive_deep=False, proactive_prefixes=[])
+        udp_query(h.port, "tcp.example.com")
+        relay = h.relay
+        self.assertIn("tcp.example.com", relay.state.names.get("APP_TEST", {}))
+
+        async def rebuild():
+            relay._targets_built -= appaliasd.TARGETS_REBUILD_INTERVAL
+            relay.proactive_start_delay = 0
+            await relay.proactive_pass()
+            return dict(relay._proactive_targets), relay.sched.next_due()
+
+        targets, nxt = h.call(rebuild())
+        self.assertIsNotNone(nxt)
+        self.assertIn(("tcp.example.com", TYPE_A), targets)
+        self.assertIn(("example.com", TYPE_A), targets)
+        self.assertIn("192.0.2.20", fake.contents("APP_TEST"))
+        relay.save_state()
+        with open(h.state_path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        self.assertEqual(data["version"], 2)
+        self.assertIn("tcp.example.com", data["names"]["APP_TEST"])
+
     def test_ip_in_table_before_response(self):
         fake = FakePf(delay=0.3)
         h = self.start([app("TEST", ["example.com"])], fake)

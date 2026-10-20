@@ -77,6 +77,8 @@ $out = [
         'unbound_autoforward' => (string)$gen->unbound_autoforward == '1',
         // résolution proactive : activée par défaut (valeur vide = défaut côté démon)
         'proactive_enabled' => (string)$gen->proactive_enabled !== '0',
+        'proactive_deep' => (string)$gen->proactive_deep !== '0',
+        'unbound_cache_seed' => (string)$gen->unbound_cache_seed !== '0',
         'proactive_interval_min' => $intOrNull($gen->proactive_interval_min),
         'proactive_interval_max' => $intOrNull($gen->proactive_interval_max),
         'proactive_prefixes' => AppAlias::splitList($gen->proactive_prefixes),

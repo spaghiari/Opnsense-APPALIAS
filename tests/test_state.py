@@ -6,6 +6,7 @@ from unittest import mock
 
 import appalias_testutil  # noqa: F401
 
+from lib import state as statemod
 from lib.state import State, compute_expiry
 
 
@@ -103,7 +104,111 @@ class PersistenceTests(unittest.TestCase):
         st.save(self.path)
         with open(self.path, encoding="utf-8") as fh:
             data = json.load(fh)
-        self.assertEqual(data["version"], 1)
+        self.assertEqual(data["version"], 2)
+
+
+class NamesWildcardsTests(unittest.TestCase):
+    """Version 2 : noms vus par table et jokers DNS."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.path = os.path.join(self.tmp.name, "state.json")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_v2_aller_retour(self):
+        st = State()
+        st.set("APP_A", "192.0.2.1", 50)
+        self.assertTrue(st.see("APP_A", "chat.example.com", 100))
+        self.assertFalse(st.see("APP_A", "chat.example.com", 150))
+        st.see("APP_B", "cdn.example.org", 120)
+        st.set_wildcard("example.net", 200)
+        st.save(self.path)
+        with open(self.path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        self.assertEqual(data["version"], 2)
+        self.assertEqual(data["names"]["APP_A"], {"chat.example.com": 150.0})
+        again = State.load(self.path)
+        self.assertEqual(again.names, {"APP_A": {"chat.example.com": 150.0},
+                                       "APP_B": {"cdn.example.org": 120.0}})
+        self.assertEqual(again.wildcards, {"example.net": 200.0})
+        self.assertEqual(again.names_count("APP_A"), 1)
+        self.assertEqual(again.names_count("APP_C"), 0)
+
+    def test_lecture_v1(self):
+        with open(self.path, "w", encoding="utf-8") as fh:
+            json.dump({"version": 1, "tables": {"APP_A": {"192.0.2.1": 10}},
+                       "last_hit": {}, "last_error": {}}, fh)
+        st = State.load(self.path)
+        self.assertEqual(st.tables, {"APP_A": {"192.0.2.1": 10.0}})
+        self.assertEqual(st.names, {})
+        self.assertEqual(st.wildcards, {})
+        st = State.from_dict({"names": {"APP_A": {"a.example.com": "x", "b.example.com": 3},
+                                        "APP_B": []},
+                              "wildcards": {"example.com": "bad", "example.org": 4}})
+        self.assertEqual(st.names, {"APP_A": {"b.example.com": 3.0}})
+        self.assertEqual(st.wildcards, {"example.org": 4.0})
+
+    def test_plafond_par_table(self):
+        st = State()
+        for i in range(statemod.MAX_NAMES + 10):
+            st.see("APP_A", "h%d.example.com" % i, 1000 + i)
+        self.assertEqual(st.names_count("APP_A"), statemod.MAX_NAMES)
+        self.assertNotIn("h0.example.com", st.names["APP_A"])            # plus anciens sortis
+        self.assertIn("h%d.example.com" % (statemod.MAX_NAMES + 9), st.names["APP_A"])
+        st.see("APP_A", "h20.example.com", 99999)                         # rafraîchi : reste
+        st.see("APP_A", "neuf.example.com", 100000)
+        self.assertIn("h20.example.com", st.names["APP_A"])
+        self.assertEqual(st.names_count("APP_A"), statemod.MAX_NAMES)
+        big = {"names": {"APP_A": {"n%d.example.com" % i: i for i in range(2000)}}}
+        self.assertEqual(State.from_dict(big).names_count("APP_A"), statemod.MAX_NAMES)
+
+    def test_purge_30_jours(self):
+        st = State()
+        now = 100 * 86400
+        st.see("APP_A", "vieux.example.com", now - 31 * 86400)
+        st.see("APP_A", "recent.example.com", now - 29 * 86400)
+        st.see("APP_B", "vieux.example.org", now - 40 * 86400)
+        self.assertEqual(st.prune_names(now), 2)
+        self.assertEqual(st.names, {"APP_A": {"recent.example.com": now - 29 * 86400.0}})
+
+    def test_jokers_7_jours(self):
+        st = State()
+        now = 100 * 86400
+        st.set_wildcard("vieux.example", now - 8 * 86400)
+        st.set_wildcard("recent.example", now - 86400)
+        self.assertEqual(st.active_wildcards(now), ["recent.example"])
+        self.assertEqual(st.prune_wildcards(now), 1)
+        self.assertEqual(list(st.wildcards), ["recent.example"])
+        st.clear_wildcard("recent.example")
+        self.assertEqual(st.wildcards, {})
+
+    def test_prune_tables_retire_les_noms(self):
+        st = State()
+        st.see("APP_A", "a.example.com", 1)
+        st.see("APP_B", "b.example.com", 1)
+        st.prune_tables({"APP_A"})
+        self.assertEqual(list(st.names), ["APP_A"])
+
+
+class RelectureStateTests(unittest.TestCase):
+    def test_horodatages_non_finis_rejetes(self):
+        st = State.from_dict({"names": {"APP_A": {"a.example.com": float("nan"),
+                                                  "b.example.com": "inf",
+                                                  "c.example.com": 7}},
+                              "wildcards": {"x.example": float("-inf"), "y.example": 3}})
+        self.assertEqual(st.names, {"APP_A": {"c.example.com": 7.0}})
+        self.assertEqual(st.wildcards, {"y.example": 3.0})
+
+    def test_plafond_jokers(self):
+        data = {"wildcards": {"d%d.example" % i: i for i in range(statemod.MAX_WILDCARDS + 50)}}
+        st = State.from_dict(data)
+        self.assertEqual(len(st.wildcards), statemod.MAX_WILDCARDS)
+        self.assertNotIn("d0.example", st.wildcards)
+        st.set_wildcard("neuf.example", 10 ** 6)
+        self.assertEqual(len(st.wildcards), statemod.MAX_WILDCARDS)
+        self.assertIn("neuf.example", st.wildcards)
 
 
 if __name__ == "__main__":

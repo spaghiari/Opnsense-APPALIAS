@@ -48,7 +48,35 @@ Résolution proactive (lib/proactive.py) : une tâche de fond résout elle-même
 à intervalle régulier, les noms des applications activées (au plus
 PROACTIVE_MAX_CONCURRENT sondes simultanées, PROACTIVE_RATE par seconde). Les
 réponses passent par process_response(hit=False) : jamais de
-« dernier usage », jamais de latence client.
+« dernier usage », jamais de latence client. Une nouvelle cible est sondée
+tout de suite (première passe immédiate, dans la limite du débit), la boucle
+ne démarrant que PROACTIVE_START_DELAY secondes après le lancement du démon.
+
+Découverte (0.10) : en plus de x et des préfixes, les cibles comprennent les
+indices des applications du catalogue (data/probe_hints.txt), les noms déjà
+vus pour la table (State.names : relais, sondes, amorçage) et, avec
+proactive_deep, le dictionnaire de labels (data/probe_labels.txt) sous chaque
+« domain:x ». Avant le dictionnaire, une sonde joker interroge un nom
+aléatoire sous x (A et AAAA selon les familles de l'application) : des
+adresses font de x un joker (State.wildcards, 7 jours), son dictionnaire est
+retiré et les noms vus sous x sont ignorés ; les adresses de cette sonde ne
+vont jamais dans les tables. Un x qui répond NXDOMAIN n'a ni sonde joker ni
+dictionnaire tant qu'il reste inexistant (mémoire non persistée, revérifié au
+rythme du backoff de x). Les noms vus (MAX_SEEN_PROBED par table re-sondés)
+sont servis après les nouvelles cibles de base et replanifiés au rythme de
+proactive_interval_max. Un nom vu pour la première fois marque les cibles « à
+reconstruire » : proactive_pass les reconstruit au plus une fois par
+TARGETS_REBUILD_INTERVAL secondes (TARGETS_REBUILD_URGENT après un verdict de
+joker ou d'inexistence, tout de suite au rechargement). Au démarrage du
+démon, les cibles sont étalées sur proactive_interval_min (pas de rafale) ;
+après un rechargement, les nouvelles sont dues tout de suite.
+
+Amorçage Unbound (unbound_cache_seed, Unbound activé) : au démarrage, après
+chaque rechargement et toutes les UNBOUND_SEED_INTERVAL secondes, les
+enregistrements du cache d'Unbound (lib/unboundcache.py) passent par ingest :
+mêmes contrôles que le relais (règles, plateformes partagées, jokers,
+exclusions, plafond, pause pfctl). Le tri des enregistrements se fait hors de
+la boucle (executor) ; un seul amorçage à la fois.
 
 Cache (lib/cache.py, cache_enabled) : une réponse déjà en cache est rendue
 sans interroger l'amont, mais passe quand même par process_response (l'IP
@@ -103,6 +131,7 @@ import ipaddress
 import logging
 import os
 import random
+import secrets
 import signal
 import struct
 import sys
@@ -119,10 +148,15 @@ from lib import metrics  # noqa: E402
 from lib import proactive  # noqa: E402
 from lib import shared  # noqa: E402
 from lib.clients import ClientAcl, RateLimiter  # noqa: E402
-from lib.matcher import Matcher  # noqa: E402
+from lib.matcher import KIND_FULL, Matcher  # noqa: E402
 from lib.pftable import PfError, PfTable, make_backend, normalize_entry  # noqa: E402
-from lib.state import State, compute_expiry  # noqa: E402
+from lib.state import WILDCARD_MAX_AGE, State, compute_expiry  # noqa: E402
 from lib.version import VERSION  # noqa: E402
+
+try:  # écrit à part ; son absence désactive seulement l'amorçage Unbound
+    from lib import unboundcache  # noqa: E402
+except ImportError:  # pragma: no cover - dépend de l'installation
+    unboundcache = None
 
 log = logging.getLogger("appalias")
 
@@ -140,12 +174,17 @@ LISTEN_RETRY_INTERVAL = 60.0     # nouvel essai des adresses d'écoute en échec
 PF_FALLBACK_ERRNOS = frozenset((errno.EINVAL, errno.ENODEV, errno.ENOTTY, errno.EFAULT))
 MAX_INFLIGHT_QUERIES = 512
 MAX_TCP_CLIENTS = 128
-PROACTIVE_MAX_CONCURRENT = 2     # sondes proactives simultanées au plus
+PROACTIVE_MAX_CONCURRENT = 4     # sondes proactives simultanées au plus
 PROACTIVE_RATE = 10.0            # sondes lancées par seconde au plus
 PROACTIVE_SLEEP_MIN = 1.0        # sommeil de la boucle (s), hors arriéré
 PROACTIVE_SLEEP_MAX = 30.0
 PROACTIVE_DEFER_JITTER = 5.0     # gigue ajoutée à un report (cooldown pfctl), en s
 PROACTIVE_RETRY_DELAY = 1.0      # report après un rechargement survenu pendant la sonde
+PROACTIVE_START_DELAY = 10.0     # au démarrage du démon, avant la première passe (écoute, amorçage)
+TARGETS_REBUILD_INTERVAL = 60.0  # reconstruction des cibles après un nom vu, au plus une fois par…
+TARGETS_REBUILD_URGENT = 2.0     # … ou après un verdict de joker DNS
+UNBOUND_SEED_INTERVAL = 3600.0   # amorçage périodique depuis le cache d'Unbound
+INGEST_YIELD_EVERY = 200         # ingestion : la boucle reprend la main tous les N noms
 
 _UNCHECKED = object()  # process_response sans contrôle de la question (appel direct)
 
@@ -196,6 +235,38 @@ def setup_logging(level=logging.INFO, use_syslog=True):
     logger.setLevel(level)
     logger.propagate = False
     return logger
+
+
+# --- ingestion -------------------------------------------------------------
+def plan_ingest(records, matcher, platforms, wildcards=()):
+    """Tri pur des enregistrements [(nom, ip, ttl)] pour Relay.ingest (executor).
+
+    Renvoie {frozenset(tables): {nom: [(ip, ttl)]}} : seuls les noms qui
+    correspondent à au moins une table, qui ne sont pas une plateforme
+    partagée (ou parente de l'une d'elles) et qui ne sont pas sous un joker
+    DNS connu ; adresses invalides et enregistrements mal formés ignorés.
+    """
+    by_name = {}
+    for item in records or ():
+        try:
+            name, ipstr, ttl = item
+            ip = ipaddress.ip_address(str(ipstr).strip())
+            ttl = max(int(ttl), 0)
+        except (TypeError, ValueError):
+            continue
+        name = dnswire.normalize_name(name)
+        if name:
+            by_name.setdefault(name, []).append((ip, ttl))
+    groups = {}
+    for name, addrs in by_name.items():
+        if proactive.under_wildcard(name, wildcards):
+            continue
+        if shared.excluded(KIND_FULL, name, platforms) is not None:
+            continue
+        tables = matcher.match_name(name)
+        if tables:
+            groups.setdefault(frozenset(tables), {})[name] = addrs
+    return groups
 
 
 # --- protocoles asyncio ---------------------------------------------------
@@ -298,6 +369,19 @@ class Relay:
         self._proactive_active = 0     # sondes en cours
         self._proactive_task = None
         self._proactive_rng = random.Random()
+        self.proactive_start_delay = PROACTIVE_START_DELAY
+        self.labels = proactive.load_labels()      # dictionnaire de la découverte profonde
+        self.hints = proactive.load_hints()        # indices par liste du catalogue
+        self._wild_clear = {}            # domaine vérifié non joker -> horodatage
+        self._missing = {}               # domaine qui répond NXDOMAIN -> horodatage
+        self._seeding = False            # amorçage Unbound en cours
+        self._seed_again = False         # amorçage demandé pendant un amorçage : relancé à la fin
+        self._targets_dirty = False      # cibles à reconstruire (nom vu, verdict de joker)
+        self._targets_urgent = False
+        self._targets_built = 0.0
+        self._targets_truncated = False
+        # Collecte du cache d'Unbound : remplaçable par les tests (callable sans argument).
+        self.unboundcache_collect = unboundcache.collect if unboundcache is not None else None
         self.cache = cache.Cache(clock=clock)
         self.acl = ClientAcl()
         self.limiter = None
@@ -417,10 +501,29 @@ class Relay:
                            "requêtes ignorées" % (ip, self.cfg.client_rate_limit))
         return False
 
-    def _update_proactive(self, cfg):
-        """Reconstruit les cibles proactives ; Scheduler recréé si les intervalles changent."""
-        self._proactive_targets = (proactive.targets(cfg, self.matcher, self.matcher.platforms)
-                                   if cfg.proactive_enabled else {})
+    def _update_proactive(self, cfg, spread=False):
+        """Reconstruit les cibles proactives ; Scheduler recréé si les intervalles changent.
+
+        spread=True (démarrage du démon) : nouvelles cibles étalées sur
+        interval_min plutôt que dues tout de suite.
+        """
+        now = self.clock()
+        report = {}
+        if cfg.proactive_enabled:
+            self._proactive_targets = proactive.targets(
+                cfg, self.matcher, self.matcher.platforms, labels=self.labels, hints=self.hints,
+                seen=self.state.names, wildcards=self.state.active_wildcards(now),
+                clear=set(self._wild_clear), missing=set(self._missing), report=report)
+        else:
+            self._proactive_targets = {}
+        truncated = report.get("truncated", False)
+        if truncated and not self._targets_truncated:
+            log.warning("résolution proactive : liste tronquée (%d noms par application, "
+                        "%d au total au plus)", proactive.MAX_PER_APP, proactive.MAX_TOTAL)
+        self._targets_truncated = truncated
+        self._targets_dirty = self._targets_urgent = False
+        self._targets_built = now
+        self.metrics.set_proactive_targets(proactive.count_names(self._proactive_targets))
         sched = self.sched
         if (sched is None or sched.interval_min != cfg.proactive_interval_min
                 or sched.interval_max != max(cfg.proactive_interval_max,
@@ -428,8 +531,22 @@ class Relay:
             sched = self.sched = proactive.Scheduler(
                 self.clock, cfg.proactive_interval_min, cfg.proactive_interval_max,
                 self._proactive_rng)
-        sched.load(self._proactive_targets)
+        sched.load(self._proactive_targets, spread=spread, slow=report.get("slow", ()))
         self._proactive_notify()
+
+    def _mark_targets_dirty(self, urgent=False):
+        """Cibles à reconstruire dans proactive_pass (au plus une fois par intervalle)."""
+        self._targets_dirty = True
+        if urgent:
+            self._targets_urgent = True
+            self._proactive_notify()
+
+    def _rebuild_wait(self, now):
+        """Secondes avant la reconstruction des cibles marquées, ou None si rien à faire."""
+        if not self._targets_dirty:
+            return None
+        interval = TARGETS_REBUILD_URGENT if self._targets_urgent else TARGETS_REBUILD_INTERVAL
+        return max(self._targets_built + interval - now, 0.0)
 
     def _proactive_notify(self):
         if self._proactive_wake is not None:
@@ -767,11 +884,45 @@ class Relay:
             return
         chain = dnswire.cname_chain(resp)
         names = chain if self.cfg.follow_cname else [resp.qname]
+        if not self.matcher.match(names):
+            return
+        await self.process_addresses(names, dnswire.addresses(resp, chain), upstream_ms,
+                                     hit=hit, source=source)
+
+    def _see_names(self, tables, names, now):
+        """Enregistre les noms qui correspondent à chaque table (noms vus).
+
+        Jamais un nom sous un joker DNS connu (tout nom y résout, y compris
+        les noms aléatoires des sondes joker).
+        """
+        wild = set(self.state.active_wildcards(now)) if self.state.wildcards else ()
+        for name in names:
+            if wild and proactive.under_wildcard(dnswire.normalize_name(name), wild):
+                continue
+            matched = self.matcher.match_name(name)
+            for table in tables:
+                if table in matched and self.state.see(table, dnswire.normalize_name(name), now):
+                    self._mark_targets_dirty()
+
+    async def process_addresses(self, names, addrs, upstream_ms=None, *, hit=True,
+                                source="relay", seed=False):
+        """Ajoute les adresses [(ip, ttl)] des noms aux tables qu'ils désignent.
+
+        Cœur commun du relais, des sondes et de l'ingestion : noms vus
+        enregistrés, exclusions (_dns_entry_ok), pause pfctl et plafond
+        max_entries_per_app respectés. Une IP en double garde le plus grand TTL.
+        seed=True : adresses ajoutées comptées dans metrics « seeded » (ingestion).
+        """
         tables = self.matcher.match(names)
         if not tables:
             return
-        addrs = dnswire.addresses(resp, chain)
         now = self.clock()
+        self._see_names(tables, names, now)
+        merged = {}
+        for ip, ttl in addrs:
+            if ip not in merged or ttl > merged[ip]:
+                merged[ip] = ttl
+        addrs = list(merged.items())
         jobs = []
         waits = []
         for table in sorted(tables):
@@ -811,11 +962,12 @@ class Relay:
             fut = asyncio.get_running_loop().create_future()
             for ipstr, expiry in new:
                 self._inflight[(table, ipstr)] = (fut, expiry)
-            jobs.append(self._add(table, new, fut, upstream_ms, self._config_gen, source))
+            jobs.append(self._add(table, new, fut, upstream_ms, self._config_gen, source, seed))
         if jobs or waits:
             await asyncio.gather(*jobs, *waits, return_exceptions=True)
 
-    async def _add(self, table, new, fut, upstream_ms=None, gen=None, source="relay"):
+    async def _add(self, table, new, fut, upstream_ms=None, gen=None, source="relay",
+                   seed=False):
         start = time.monotonic()
         queued = [ip for ip, _ in new]   # liste d'origine : _inflight se nettoie sur celle-ci
         try:
@@ -849,6 +1001,8 @@ class Relay:
                         self.state.set(table, ipstr, expiry)
                     if source == "proactive":
                         self.metrics.add_proactive("added", len(ips))
+                    if seed:
+                        self.metrics.add_seed(len(ips))     # ingestion (amorçage)
                     log.info("%s : ajout de %d IP (amont %s, pf %d ms%s) : %s", table, len(ips),
                              "%d ms" % upstream_ms if upstream_ms is not None else "-",
                              pf_ms, ", source %s" % source if source != "relay" else "",
@@ -859,6 +1013,73 @@ class Relay:
             if not fut.done():
                 fut.set_result(None)
 
+    # -- ingestion (amorçage) --
+    async def ingest(self, records, source="unbound"):
+        """Ajoute des enregistrements [(nom, ip, ttl)] venus d'ailleurs que de l'amont.
+
+        Le tri (plan_ingest : adresses, noms, règles, plateformes partagées,
+        jokers) se fait dans l'executor sur une capture immuable du matcher ;
+        sur la boucle, seul process_addresses tourne (hit=False : exclusions,
+        plafond, pause pfctl, noms vus), la main étant rendue tous les
+        INGEST_YIELD_EVERY noms. Si la configuration change pendant le tri, le
+        résultat est jeté. Renvoie (noms retenus, adresses ajoutées aux tables).
+        """
+        gen = self._config_gen
+        matcher = self.matcher
+        wild = frozenset(self.state.active_wildcards(self.clock()))
+        groups = await asyncio.get_running_loop().run_in_executor(
+            None, plan_ingest, list(records or ()), matcher, matcher.platforms, wild)
+        if gen != self._config_gen:
+            log.info("ingestion (%s) abandonnée : configuration rechargée pendant le tri", source)
+            return 0, 0
+        before = self.metrics.discovery["seeded"]
+        count = 0
+        for by_name in groups.values():
+            names = sorted(by_name)
+            for i in range(0, len(names), INGEST_YIELD_EVERY):
+                chunk = names[i:i + INGEST_YIELD_EVERY]
+                addrs = [a for name in chunk for a in by_name[name]]
+                await self.process_addresses(chunk, addrs, hit=False, source=source, seed=True)
+                count += len(chunk)
+                await asyncio.sleep(0)
+        return count, self.metrics.discovery["seeded"] - before
+
+    async def seed_from_unbound(self):
+        """Amorce les tables depuis le cache d'Unbound ; (noms, adresses) ou None.
+
+        Sans effet si unbound_cache_seed est faux, si Unbound est désactivé, si
+        lib/unboundcache.py est absent ou si un amorçage est déjà en cours
+        (rechargement et tâche périodique ne se chevauchent jamais). Jamais fatal : une erreur est
+        journalisée en avertissement (limité).
+        """
+        collect = self.unboundcache_collect
+        unbound = self.cfg.unbound if isinstance(self.cfg.unbound, dict) else {}
+        if collect is None or not self.cfg.unbound_cache_seed or not unbound.get("enabled"):
+            return None
+        if self._seeding:
+            # Un rechargement pendant un amorçage : on le refait une fois à la fin
+            # (le tri en cours est jeté si la configuration a changé).
+            self._seed_again = True
+            log.debug("amorçage Unbound déjà en cours : relancé à la fin de celui-ci")
+            return None
+        self._seeding = True
+        self._seed_again = False
+        try:
+            records = await asyncio.get_running_loop().run_in_executor(None, collect)
+            names, added = await self.ingest(records, source="unbound")
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            self._warn_limited(("unbound", "seed"), "amorçage Unbound impossible : %s" % (exc,))
+            return None
+        finally:
+            self._seeding = False
+            if self._seed_again:
+                self._seed_again = False
+                self.spawn(self.seed_from_unbound())
+        log.info("amorçage Unbound : %d noms, %d adresses ajoutées", names, added)
+        return names, added
+
     # -- résolution proactive --
     async def proactive_loop(self):
         """Tâche de fond : lance les sondes échues dans la limite du débit.
@@ -868,6 +1089,9 @@ class Relay:
         """
         if self._proactive_wake is None:
             self._proactive_wake = asyncio.Event()
+        if self.proactive_start_delay > 0:
+            # Démarrage : écoute ouverte et amorçage Unbound lancé avant la première passe.
+            await asyncio.sleep(self.proactive_start_delay)
         while True:
             self._proactive_wake.clear()
             try:
@@ -888,6 +1112,8 @@ class Relay:
 
         Le sommeil est interrompu par un rechargement ou la fin d'une sonde.
         """
+        if self.cfg.proactive_enabled and self._rebuild_wait(self.clock()) == 0.0:
+            self._update_proactive(self.cfg)
         sched = self.sched
         if not self.cfg.proactive_enabled or sched is None or not len(sched):
             return PROACTIVE_SLEEP_MAX
@@ -902,10 +1128,13 @@ class Relay:
             # débit : n sondes lancées = n / PROACTIVE_RATE s avant la suivante
             await asyncio.sleep(len(keys) / PROACTIVE_RATE)
             return 0.0
+        now = self.clock()
         nxt = sched.next_due()
-        if nxt is None:
-            return PROACTIVE_SLEEP_MAX
-        return min(max(nxt - self.clock(), PROACTIVE_SLEEP_MIN), PROACTIVE_SLEEP_MAX)
+        delay = PROACTIVE_SLEEP_MAX if nxt is None else nxt - now
+        rebuild = self._rebuild_wait(now)
+        if rebuild is not None:
+            delay = min(delay, rebuild)
+        return min(max(delay, PROACTIVE_SLEEP_MIN), PROACTIVE_SLEEP_MAX)
 
     async def _probe(self, sched, key):
         """Sonde d'une cible : replanifie toujours la cible, ne lève jamais (hors annulation)."""
@@ -940,24 +1169,18 @@ class Relay:
                   if t in self.apps and self.apps[t].enabled]
         if not tables:
             return "stale", None
+        if qtype == proactive.QTYPE_WILDCARD:
+            return await self._probe_wildcard(name, gen, tables)
         now = self.clock()
         ends = [self._cooldown.get(t, 0.0) for t in tables]
         if all(end > now for end in ends):
             sched.defer(key, min(ends) + self._proactive_rng.uniform(0, PROACTIVE_DEFER_JITTER))
             return "deferred", None
         try:
-            query = dnswire.build_query(name, qtype)
+            raw, resp, expect = await self._exchange_probe(name, qtype)
         except ValueError:
             self.metrics.add_proactive("fail")
             return "fail", None
-        expect = dnswire.question_key(query)
-        self.metrics.add_proactive("sent")           # une requête réseau réellement émise
-        raw = await self.forward(query, "udp", measure=False)
-        resp = dnswire.parse_response(raw) if raw is not None else None
-        if resp is not None and resp.truncated and self.cfg.upstream_protocol != "dot":
-            self.metrics.add_proactive("sent")       # le rejeu TCP est une requête de plus
-            raw = await self.forward(query, "tcp", measure=False)   # TC : rejeu en TCP
-            resp = dnswire.parse_response(raw) if raw is not None else None
         if gen != self._config_gen:
             return "stale", None
         if resp is None or expect is None or (resp.id, resp.qname) != tuple(expect):
@@ -965,10 +1188,12 @@ class Relay:
             return "fail", None
         if resp.rcode == 3:
             self.metrics.add_proactive("empty")
+            self._note_existence(name, False)
             return "nxdomain", None
         if resp.rcode != 0:
             self.metrics.add_proactive("fail")
             return "fail", None
+        self._note_existence(name, True)
         addrs = dnswire.addresses(resp, dnswire.cname_chain(resp))
         if not addrs:
             self.metrics.add_proactive("empty")
@@ -977,10 +1202,104 @@ class Relay:
         self.metrics.add_proactive("ok")
         return "ok", min(ttl for _ip, ttl in addrs)
 
+    async def _exchange_probe(self, name, qtype):
+        """(réponse brute, réponse analysée, attendu) d'une sonde ; rejeu TCP si tronquée."""
+        query = dnswire.build_query(name, qtype)
+        expect = dnswire.question_key(query)
+        self.metrics.add_proactive("sent")           # une requête réseau réellement émise
+        raw = await self.forward(query, "udp", measure=False)
+        resp = dnswire.parse_response(raw) if raw is not None else None
+        if resp is not None and resp.truncated and self.cfg.upstream_protocol != "dot":
+            self.metrics.add_proactive("sent")       # le rejeu TCP est une requête de plus
+            raw = await self.forward(query, "tcp", measure=False)
+            resp = dnswire.parse_response(raw) if raw is not None else None
+        return raw, resp, expect
+
+    def _note_existence(self, name, exists):
+        """Verdict d'existence d'un domaine x (« domain:x ») après la sonde de x.
+
+        NXDOMAIN : x est noté inexistant (ni sonde joker ni dictionnaire, mémoire
+        non persistée) ; toute autre réponse le retire. Un changement de verdict
+        reconstruit les cibles rapidement.
+        """
+        if exists:
+            if self._missing.pop(name, None) is not None:
+                self._mark_targets_dirty(urgent=True)
+            return
+        if name in self._missing:
+            self._missing[name] = self.clock()
+        elif (name, proactive.QTYPE_WILDCARD) in self._proactive_targets:
+            self._missing[name] = self.clock()
+            log.info("résolution proactive : %s n'existe pas (NXDOMAIN), dictionnaire de labels "
+                     "suspendu pour ce domaine", name)
+            self._mark_targets_dirty(urgent=True)
+
+    async def _probe_wildcard(self, domain, gen, tables):
+        """Sonde joker de domain : nom aléatoire « <12 hex>.domain » (secrets).
+
+        Interrogé en A puis en AAAA selon les familles des applications : des
+        adresses dans l'une des réponses font de domain un joker (State.wildcards,
+        cibles de dictionnaire retirées) ; sinon (NXDOMAIN ou réponse vide)
+        domain est vérifié non joker (dictionnaire ajouté). Les adresses de
+        cette sonde ne sont jamais ajoutées aux tables.
+        """
+        qtypes = set()
+        for table in tables:
+            qtypes |= proactive.family_qtypes(getattr(self.apps[table], "families", "both"))
+        found = None
+        nxdomain = False
+        for qtype in sorted(qtypes):
+            name = "%s.%s" % (secrets.token_hex(6), domain)
+            try:
+                _raw, resp, expect = await self._exchange_probe(name, qtype)
+            except ValueError:
+                self.metrics.add_proactive("fail")
+                return "fail", None
+            if gen != self._config_gen:
+                return "stale", None
+            if (resp is None or expect is None or (resp.id, resp.qname) != tuple(expect)
+                    or resp.rcode not in (0, 3)):
+                self.metrics.add_proactive("fail")
+                return "fail", None
+            if resp.rcode == 3:
+                nxdomain = True
+                continue
+            addrs = dnswire.addresses(resp, dnswire.cname_chain(resp))
+            if addrs:
+                found = addrs
+                break
+        now = self.clock()
+        if found:
+            self.metrics.add_proactive("ok")
+            self._wild_clear.pop(domain, None)
+            if domain not in self.state.active_wildcards(now):
+                log.info("résolution proactive : %s est un joker DNS (tout sous-domaine résout), "
+                         "dictionnaire de labels retiré pour ce domaine", domain)
+            self.state.set_wildcard(domain, now)
+            self._mark_targets_dirty(urgent=True)
+            return "ok", min(ttl for _ip, ttl in found)
+        self.metrics.add_proactive("empty")
+        if domain in self.state.wildcards:
+            self.state.clear_wildcard(domain)
+        if domain not in self._wild_clear:
+            self._mark_targets_dirty(urgent=True)
+        self._wild_clear[domain] = now
+        return ("nxdomain" if nxdomain else "nodata"), None
+
     # -- maintenance --
     async def sweep(self):
-        """Retire les IP expirées. L'état n'est modifié qu'après le succès du delete."""
+        """Retire les IP expirées. L'état n'est modifié qu'après le succès du delete.
+
+        Purge aussi les noms vus trop anciens et les verdicts de joker périmés.
+        """
         now = self.clock()
+        pruned = self.state.prune_names(now)
+        pruned += self.state.prune_wildcards(now)
+        if pruned:
+            self._mark_targets_dirty()
+        for memo in (self._wild_clear, self._missing):
+            for domain in [d for d, ts in memo.items() if ts < now - WILDCARD_MAX_AGE]:
+                del memo[domain]
         for table in list(self.state.expired(now)):
             async with self._lock(table):
                 expired = self.state.expired(now).get(table, [])
@@ -1127,6 +1446,7 @@ class Relay:
         self._apply_config(new_cfg)
         logging.getLogger("appalias").setLevel(new_cfg.log_level)
         await self.restore_tables()
+        self.spawn(self.seed_from_unbound())
         if (tuple(new_cfg.listen_addresses), new_cfg.listen_port) != old:
             await self._reopen_listeners(old)
         self._log_upstream()
@@ -1169,8 +1489,12 @@ class Relay:
         self._stop = asyncio.Event()
         self._sem = asyncio.Semaphore(MAX_INFLIGHT_QUERIES)
         self.state = State.load(self.state_path)
+        # Noms vus et jokers de l'état relu ; démarrage : cibles étalées (pas de rafale).
+        self.sched = None
+        self._update_proactive(self.cfg, spread=True)
         # Tables restaurées AVANT d'ouvrir l'écoute.
         await self.restore_tables()
+        self.spawn(self.seed_from_unbound())
         await self.open_listeners()
         self._log_upstream()
         if install_signals:
@@ -1189,6 +1513,7 @@ class Relay:
             asyncio.ensure_future(self._periodic(DOT_PRUNE_INTERVAL, self.prune_pools)),
             asyncio.ensure_future(self._periodic(METRICS_INTERVAL, self.save_metrics)),
             asyncio.ensure_future(self._periodic(self.listen_retry_interval, self.retry_listeners)),
+            asyncio.ensure_future(self._periodic(UNBOUND_SEED_INTERVAL, self.seed_from_unbound)),
         ]
         # Version du code en cours d'exécution, visible tout de suite dans l'état.
         self.save_metrics(force=True)

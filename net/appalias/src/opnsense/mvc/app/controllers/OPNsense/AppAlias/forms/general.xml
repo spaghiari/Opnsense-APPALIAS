@@ -143,6 +143,18 @@
         <help>The relay resolves by itself, at regular intervals, the "domain:" and "full:" names of the enabled applications that have the option checked, to fill the aliases before any client asks. It works in addition to the DNS relay, not instead of it: dynamic names, "regexp:" and "keyword:" rules and shared platforms (CDN, cloud) are not covered. It generates outgoing DNS traffic towards the upstream resolver.</help>
     </field>
     <field>
+        <id>appalias.general.proactive_deep</id>
+        <label>Deep discovery</label>
+        <type>checkbox</type>
+        <help>In addition to the domain itself and the proactive prefixes, the relay probes a built-in dictionary of about 90 common service labels (api, chat, cdn, storage, voip...) in front of each domain: rule, so the real endpoints of an application enter the alias before any client asks. Domains that answer any name (DNS wildcard) are detected and skipped, as are domains that do not exist (NXDOMAIN). This option only controls the dictionary: built-in hints for popular applications and names already seen by the relay are always probed while Proactive resolution is enabled. Adds DNS traffic towards the upstream after each change, then NXDOMAIN names back off.</help>
+    </field>
+    <field>
+        <id>appalias.general.unbound_cache_seed</id>
+        <label>Seed from Unbound cache</label>
+        <type>checkbox</type>
+        <help>At startup, after Apply and every hour, the names already resolved by Unbound (unbound-control dump_cache) that match an application are added to its alias at once, with their addresses. Requires Unbound on the firewall.</help>
+    </field>
+    <field>
         <id>appalias.general.proactive_interval_min</id>
         <label>Proactive minimum interval (s)</label>
         <type>text</type>
