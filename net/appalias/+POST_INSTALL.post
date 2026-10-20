@@ -11,6 +11,12 @@ fi
 # daemon(8) détache le processus ; en cas d'échec, le cron quotidien reprend.
 /usr/sbin/daemon -f /usr/local/bin/python3 /usr/local/opnsense/scripts/OPNsense/AppAlias/catalog_update.py update --if-enabled > /dev/null 2>&1 || true
 
+# Sources ASN : récupère en tâche de fond les préfixes des applications qui
+# n'en ont pas encore (--if-needed). Le script ne contacte RIPEstat que si le
+# plugin et les sources ASN sont activés dans config.json.
+# Jamais bloquant ; en cas d'échec, le cron quotidien reprend.
+/usr/sbin/daemon -f /usr/local/bin/python3 /usr/local/opnsense/scripts/OPNsense/AppAlias/asn_update.py update --if-needed > /dev/null 2>&1 || true
+
 # Suivi automatique du catalogue : un catalogue embarqué plus récent arrive
 # avec le paquet ; les applications qui le suivent reçoivent ses nouveautés
 # (migration du modèle déjà faite à ce stade). Sans changement, rien n'est

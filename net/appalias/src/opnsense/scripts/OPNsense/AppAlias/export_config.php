@@ -82,6 +82,14 @@ $out = [
         'proactive_prefixes' => AppAlias::splitList($gen->proactive_prefixes),
         // mise à jour en ligne du catalogue : activée par défaut
         'catalog_online_update' => (string)$gen->catalog_online_update !== '0',
+        // relais ouvert au LAN (0.9) : cache, réseaux clients autorisés, limite par client
+        'cache_enabled' => (string)$gen->cache_enabled !== '0',
+        'client_networks' => AppAlias::splitList($gen->client_networks),
+        'client_rate_limit' => $intOrNull($gen->client_rate_limit),
+        // backend pf : valeur vide = automatique (ioctl, repli pfctl)
+        'pf_backend' => (string)$gen->pf_backend !== '' ? (string)$gen->pf_backend : 'auto',
+        // sources ASN (RIPEstat) : activées par défaut
+        'asn_enabled' => (string)$gen->asn_enabled !== '0',
     ],
     'apps' => [],
 ];

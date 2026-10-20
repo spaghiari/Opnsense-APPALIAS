@@ -78,6 +78,8 @@ def pfctl_argv():
 
 
 class PfTable:
+    name = "pfctl"
+
     def __init__(self, pfctl=None, runner=None, timeout=3.0, tmpdir=None):
         self.argv = list(pfctl) if pfctl else pfctl_argv()
         self.runner = runner
@@ -141,3 +143,57 @@ class PfTable:
         check_table(table)
         out = self._run(["-t", table, "-T", "show"])
         return [line.strip() for line in out.splitlines() if line.strip()]
+
+
+def _tag(backend, reason=None):
+    """Pose backend.fallback_reason (None, ou cause du repli sur pfctl) si possible."""
+    try:
+        backend.fallback_reason = reason
+    except AttributeError:
+        pass  # objet sans attribut modifiable (fabrique injectée par un test)
+    return backend
+
+
+def make_backend(mode="auto", tmpdir=None, log=None, ioctl_factory=None):
+    """Choisit le backend : « pfctl », « ioctl » ou « auto » (ioctl, repli pfctl).
+
+    En « ioctl » et « auto », le backend ioctl doit passer probe() puis
+    selftest() ; en « auto », un échec replie sur pfctl.
+
+    L'objet rendu porte fallback_reason : None, ou le texte de l'exception
+    quand « auto » a dû replier sur pfctl.
+    """
+    if mode not in ("auto", "pfctl", "ioctl"):
+        raise ValueError("mode de backend pf inconnu : %r" % (mode,))
+    if mode == "pfctl":
+        return _tag(PfTable(tmpdir=tmpdir))
+
+    def build():
+        if ioctl_factory is not None:
+            backend = ioctl_factory()
+        else:
+            from .pfioctl import PfIoctl  # import paresseux (ctypes, /dev/pf)
+            backend = PfIoctl()
+        try:
+            # /dev/pf joignable, puis aller-retour réel sur une table de test.
+            for check in ("probe", "selftest"):
+                func = getattr(backend, check, None)
+                if func is not None:
+                    func()
+        except Exception:
+            close = getattr(backend, "close", None)
+            if close is not None:
+                close()
+            raise
+        return backend
+
+    if mode == "ioctl":
+        return _tag(build())
+    try:
+        return _tag(build())
+    except (PfError, OSError, ImportError) as exc:
+        if log is None:
+            import logging
+            log = logging.getLogger("appalias")
+        log.warning("backend pf ioctl indisponible (%s), repli sur pfctl", exc)
+        return _tag(PfTable(tmpdir=tmpdir), str(exc) or exc.__class__.__name__)

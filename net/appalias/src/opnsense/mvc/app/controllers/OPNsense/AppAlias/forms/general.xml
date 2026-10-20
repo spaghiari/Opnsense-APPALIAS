@@ -7,15 +7,51 @@
     </field>
     <field>
         <id>appalias.general.listen_address</id>
-        <label>Listen address</label>
-        <type>text</type>
-        <help>Local address of the relay. Default 127.0.0.1: only the local resolver (Unbound or Dnsmasq) queries it.</help>
+        <label>Listen addresses</label>
+        <type>select_multiple</type>
+        <style>tokenize</style>
+        <allownew>true</allownew>
+        <help>Addresses the relay listens on, comma separated. Default 127.0.0.1: only the local resolver (Unbound or Dnsmasq) queries it. Add a LAN address (and set the port to 53) to serve LAN clients directly, for example when no resolver runs on the firewall: then point the DHCP DNS of your clients to the firewall. Clients outside the allowed networks are ignored.</help>
     </field>
     <field>
         <id>appalias.general.listen_port</id>
         <label>Listen port</label>
         <type>text</type>
         <help>UDP and TCP port of the relay (default 53535).</help>
+    </field>
+    <field>
+        <id>appalias.general.cache_enabled</id>
+        <label>Response cache</label>
+        <type>checkbox</type>
+        <help>Answers are cached according to their TTL (bounded by minimum TTL + TTL margin) and served without asking the upstream; the aliases are still refreshed. Recommended when LAN clients query the relay directly.</help>
+    </field>
+    <field>
+        <id>appalias.general.client_networks</id>
+        <label>Allowed client networks</label>
+        <type>select_multiple</type>
+        <style>tokenize</style>
+        <allownew>true</allownew>
+        <help>Only queries from these networks are answered. Empty: loopback and private networks (RFC 1918, ULA, link-local). Queries from other addresses are dropped without answer.</help>
+    </field>
+    <field>
+        <id>appalias.general.client_rate_limit</id>
+        <label>Rate limit per client (queries/s)</label>
+        <type>text</type>
+        <advanced>true</advanced>
+        <help>Queries per second accepted from one client address (burst: twice this value). 0 = unlimited. Loopback is never limited.</help>
+    </field>
+    <field>
+        <id>appalias.general.pf_backend</id>
+        <label>pf backend</label>
+        <type>dropdown</type>
+        <advanced>true</advanced>
+        <help>How addresses are written to the pf tables. Automatic: direct ioctl on /dev/pf (no process per answer), with fallback to the pfctl command if the ioctl fails at startup. The active backend is shown in the status above.</help>
+    </field>
+    <field>
+        <id>appalias.general.asn_enabled</id>
+        <label>ASN sources</label>
+        <type>checkbox</type>
+        <help>The prefixes announced in BGP by the ASNs of an application (RIPEstat, https://stat.ripe.net) are added to its alias. Refreshed once a day and after Apply; RIPE NCC sees the address of the firewall. Uncheck to never contact RIPEstat.</help>
     </field>
     <field>
         <id>appalias.general.upstream_address</id>

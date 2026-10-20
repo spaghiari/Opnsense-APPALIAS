@@ -27,6 +27,9 @@ ZONE = {
                         ("www.example.com", TYPE_AAAA, 60, "2001:db8::10"),
                         ("www.example.com", TYPE_AAAA, 60, "fe80::1")],
     "tcp.example.com": [("tcp.example.com", TYPE_A, 60, "192.0.2.20")],
+    # adresses publiques : les préfixes ASN de documentation sont refusés (lib/asn.py)
+    "asn.example.com": [("asn.example.com", TYPE_A, 60, "9.9.9.10"),
+                        ("asn.example.com", TYPE_AAAA, 60, "2620:fe::10")],
     "alias.example.org": [("alias.example.org", TYPE_CNAME, 60, "edge.example.com"),
                           ("edge.example.com", TYPE_A, 60, "192.0.2.30")],
     "via.example.net": [("via.example.net", TYPE_CNAME, 60, "node.cdn.example.com"),
@@ -37,6 +40,7 @@ ZONE = {
     "large.example.com": [("large.example.com", TYPE_A, 60, "198.51.100.%d" % i) for i in range(1, 41)],
 }
 TRUNCATED = "big.example.com"
+UNBINDABLE = "192.0.2.123"            # adresse absente de la machine : bind impossible
 WRONG_QNAME = "wrongq.example.com"   # l'amont répond avec un autre qname
 WRONG_ID = "wrongid.example.com"     # l'amont répond avec un autre ID (TCP)
 
@@ -141,9 +145,19 @@ def recv_exact(sock, size):
 
 
 class RelayHarness:
-    def __init__(self, cfg_dict, tmpdir, fake, clock=None, state=None, tls_cafile=None):
+    def __init__(self, cfg_dict, tmpdir, fake, clock=None, state=None, tls_cafile=None,
+                 asn_cache=None):
         self.config_path = os.path.join(tmpdir, "config.json")
         self.state_path = os.path.join(tmpdir, "state.json")
+        # Cache ASN toujours dans tmpdir : jamais celui du système.
+        self.asn_path = os.path.join(tmpdir, "asn.json")
+        # Cache de réponses désactivé sauf demande explicite : les tests qui
+        # comptent les requêtes amont (DoT, transfert Unbound) restent exacts.
+        cfg_dict = dict(cfg_dict, general=dict(cfg_dict.get("general", {})))
+        cfg_dict["general"].setdefault("cache_enabled", False)
+        if asn_cache is not None:
+            with open(self.asn_path, "w", encoding="utf-8") as fh:
+                json.dump(asn_cache, fh)
         with open(self.config_path, "w", encoding="utf-8") as fh:
             json.dump(cfg_dict, fh)
         if state is not None:
@@ -153,7 +167,8 @@ class RelayHarness:
         extra = {"tls_cafile": tls_cafile} if tls_cafile is not None else {}
         self.relay = appaliasd.Relay(cfg, PfTable(pfctl=["pfctl"], runner=fake, tmpdir=tmpdir),
                                      state_path=self.state_path, config_path=self.config_path,
-                                     clock=clock or time.time, **extra)
+                                     clock=clock or time.time, asn_cache_path=self.asn_path,
+                                     **extra)
         self.relay.udp_timeout = 0.5
         self.relay.dot_timeout = 1.0
         self.relay.ready = threading.Event()
@@ -192,16 +207,17 @@ def make_config(listen_port, upstreams, apps, **general):
     return {"general": gen, "apps": apps}
 
 
-def app(name, domains, networks=(), families="both", enabled=True):
+def app(name, domains, networks=(), families="both", enabled=True, asns=()):
     return {"uuid": "uuid-" + name, "enabled": enabled, "name": name, "domains": list(domains),
-            "networks": list(networks), "families": families, "origin": "manual", "asns": []}
+            "networks": list(networks), "families": families, "origin": "manual",
+            "asns": list(asns)}
 
 
-def udp_query(port, qname, qtype=TYPE_A, qid=0x4242, on_receive=None):
+def udp_query(port, qname, qtype=TYPE_A, qid=0x4242, on_receive=None, host="127.0.0.1"):
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.settimeout(5)
     try:
-        s.sendto(build_query(qname, qtype, qid), ("127.0.0.1", port))
+        s.sendto(build_query(qname, qtype, qid), (host, port))
         data, _ = s.recvfrom(65535)
         if on_receive:
             on_receive()
@@ -232,10 +248,10 @@ class ProxyIntegrationTests(unittest.TestCase):
         self.upstream.close()
         self.tmp.cleanup()
 
-    def start(self, apps, fake, upstreams=None, **general):
+    def start(self, apps, fake, upstreams=None, asn_cache=None, **general):
         upstreams = upstreams or [self.upstream.port]
         cfg = make_config(free_port(), upstreams, apps, **general)
-        self.harness = RelayHarness(cfg, self.tmp.name, fake)
+        self.harness = RelayHarness(cfg, self.tmp.name, fake, asn_cache=asn_cache)
         return self.harness
 
     def test_ip_in_table_before_response(self):
@@ -385,6 +401,183 @@ class ProxyIntegrationTests(unittest.TestCase):
         data = udp_query(h.port, "www.example.com")
         self.assertIsNotNone(dnswire.parse_response(data))
         self.assertIn("APP_TEST", h.relay.state.last_error)
+
+
+def asn_cache(prefixes, asn_number="2906"):
+    return {"version": 1, "asns": {asn_number: {"prefixes": list(prefixes), "fetched": 1700000000,
+                                                "error": None}}}
+
+
+def answer_ips(data):
+    resp = dnswire.parse_response(data)
+    return sorted(str(ip) for ip, _ttl in dnswire.addresses(resp, dnswire.cname_chain(resp)))
+
+
+class RelayFeaturesTests(unittest.TestCase):
+    """0.9 : cache, préfixes ASN, écoute multiple, mesures."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.upstream = FakeUpstream()
+        self.harness = None
+
+    def tearDown(self):
+        if self.harness:
+            self.harness.close()
+        self.upstream.close()
+        self.tmp.cleanup()
+
+    def start(self, apps, fake, upstreams=None, asn_cache=None, **general):
+        upstreams = upstreams or [self.upstream.port]
+        general.setdefault("proactive_enabled", False)   # compteurs amont déterministes
+        general.setdefault("cache_enabled", True)         # désactivé par défaut dans RelayHarness
+        cfg = make_config(free_port(), upstreams, apps, **general)
+        self.harness = RelayHarness(cfg, self.tmp.name, fake, asn_cache=asn_cache)
+        return self.harness
+
+    def test_cache_hit(self):
+        fake = FakePf()
+        h = self.start([app("TEST", ["example.com"])], fake)
+        first = udp_query(h.port, "www.example.com", qid=0x1111)
+        second = udp_query(h.port, "www.example.com", qid=0x2222)
+        self.assertEqual(self.upstream.udp_queries, 1)
+        resp = dnswire.parse_response(second)
+        self.assertEqual(resp.id, 0x2222)
+        self.assertEqual(answer_ips(second), answer_ips(first))
+        self.assertEqual(fake.contents("APP_TEST"), {"192.0.2.10", "2001:db8::10"})
+        cache = h.relay.metrics.to_dict()["cache"]
+        self.assertEqual((cache["hits"], cache["misses"]), (1, 1))
+        h.relay.save_metrics(force=True)
+        with open(h.relay.metrics_path, encoding="utf-8") as fh:
+            saved = json.load(fh)
+        self.assertEqual(saved["cache"]["entries"], 1)
+        self.assertEqual(saved["daemon"]["pf_backend"], "pfctl")
+
+    def test_cache_hit_still_fills_table(self):
+        # entrée retirée de la table entre deux requêtes : le hit la remet
+        fake = FakePf()
+        h = self.start([app("TEST", ["example.com"])], fake)
+        udp_query(h.port, "www.example.com")
+        h.relay.state.tables.get("APP_TEST", {}).clear()
+        with fake.lock:
+            fake.tables["APP_TEST"].clear()
+        udp_query(h.port, "www.example.com", qid=0x4244)
+        self.assertEqual(self.upstream.udp_queries, 1)
+        self.assertEqual(fake.contents("APP_TEST"), {"192.0.2.10", "2001:db8::10"})
+
+    def test_cache_disabled(self):
+        fake = FakePf()
+        h = self.start([app("TEST", ["example.com"])], fake, cache_enabled=False)
+        udp_query(h.port, "www.example.com")
+        udp_query(h.port, "www.example.com", qid=0x4243)
+        self.assertEqual(self.upstream.udp_queries, 2)
+        self.assertEqual(len(h.relay.cache), 0)
+
+    def test_servfail_not_cached(self):
+        dead = FakeUpstream(silent=True)
+        try:
+            fake = FakePf()
+            h = self.start([app("TEST", ["example.com"])], fake, upstreams=[dead.port])
+            for qid in (0x0A0A, 0x0B0B):
+                data = udp_query(h.port, "www.example.com", qid=qid)
+                self.assertEqual(struct.unpack("!H", data[2:4])[0] & 0xF, 2)   # SERVFAIL
+            self.assertEqual(dead.udp_queries, 2)
+            self.assertEqual(len(h.relay.cache), 0)
+        finally:
+            dead.close()
+
+    def test_asn_prefixes_in_table(self):
+        fake = FakePf()
+        h = self.start([app("NF", ["example.com"], asns=["AS2906"])], fake,
+                       asn_cache=asn_cache(["9.9.9.0/24", "2620:fe::/32"]))
+        self.assertEqual(fake.contents("APP_NF"), {"9.9.9.0/24", "2620:fe::/32"})
+        udp_query(h.port, "asn.example.com")
+        self.assertEqual(fake.ops("add"), [])          # IP couvertes par les préfixes ASN
+        self.assertEqual(h.relay.state.count("APP_NF"), 0)
+        self.assertEqual(h.relay.metrics.to_dict()["asn"], {"tables": 1, "prefixes": 2})
+
+    def test_asn_prefix_not_covering(self):
+        fake = FakePf()
+        h = self.start([app("NF", ["example.com"], asns=["AS2906"])], fake,
+                       asn_cache=asn_cache(["8.8.8.0/24"]))
+        self.assertEqual(fake.contents("APP_NF"), {"8.8.8.0/24"})
+        udp_query(h.port, "asn.example.com")
+        self.assertEqual(fake.contents("APP_NF"), {"8.8.8.0/24", "9.9.9.10", "2620:fe::10"})
+
+    def test_asn_prefixes_bornes_au_plafond(self):
+        fake = FakePf()
+        with self.assertLogs("appalias", level="WARNING") as logs:
+            self.start([app("NF", ["example.com"], networks=["1.1.1.0/24"], asns=["AS2906"])],
+                       fake, asn_cache=asn_cache(["8.8.8.0/24", "9.9.9.0/24", "11.0.0.0/8"]),
+                       max_entries_per_app=3)
+        self.assertEqual(fake.contents("APP_NF"), {"1.1.1.0/24", "8.8.8.0/24", "9.9.9.0/24"})
+        self.assertTrue(any("tronqués à 2" in line for line in logs.output))
+
+    def test_asn_reload_apres_mise_a_jour(self):
+        fake = FakePf()
+        h = self.start([app("NF", ["example.com"], asns=["AS2906"])], fake,
+                       asn_cache=asn_cache(["8.8.8.0/24"]))
+        self.assertEqual(fake.contents("APP_NF"), {"8.8.8.0/24"})
+        with open(h.asn_path, "w", encoding="utf-8") as fh:
+            json.dump(asn_cache(["9.9.9.0/24", "2620:fe::/32"]), fh)
+        h.call(h.relay.reload())                 # équivalent du configctl reload d'asn_update
+        self.assertEqual(fake.contents("APP_NF"), {"9.9.9.0/24", "2620:fe::/32"})
+        udp_query(h.port, "asn.example.com")
+        self.assertEqual(fake.ops("add"), [])
+
+    def test_listen_two_addresses(self):
+        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            probe.bind(("127.0.0.2", 0))
+        except OSError:
+            self.skipTest("127.0.0.2 indisponible sur cette machine")
+        finally:
+            probe.close()
+        fake = FakePf()
+        h = self.start([app("TEST", ["example.com"])], fake,
+                       listen_address=["127.0.0.1", "127.0.0.2"])
+        self.assertEqual(len(h.relay._udp_transports), 2)
+        for host in ("127.0.0.1", "127.0.0.2"):
+            data = udp_query(h.port, "www.example.com", host=host)
+            self.assertIn("192.0.2.10", answer_ips(data))
+            with socket.create_connection((host, h.port), timeout=5) as s:
+                q = build_query("tcp.example.com", TYPE_A, 0x5353)
+                s.sendall(struct.pack("!H", len(q)) + q)
+                size = struct.unpack("!H", recv_exact(s, 2))[0]
+                self.assertEqual(dnswire.parse_response(recv_exact(s, size)).id, 0x5353)
+
+    def test_listen_partiel_puis_reessai(self):
+        fake = FakePf()
+        h = self.start([app("TEST", ["example.com"])], fake,
+                       listen_address=[UNBINDABLE, "127.0.0.1"])
+        self.assertEqual(h.relay._listen_missing, {UNBINDABLE})
+        self.assertEqual(len(h.relay._udp_transports), 1)
+        self.assertIn("192.0.2.10", answer_ips(udp_query(h.port, "www.example.com")))
+        h.call(h.relay.retry_listeners())        # toujours impossible : rien ne change
+        self.assertEqual(h.relay._listen_missing, {UNBINDABLE})
+        self.assertEqual(len(h.relay._udp_transports), 1)
+
+    def test_reload_vers_adresses_impossibles(self):
+        fake = FakePf()
+        h = self.start([app("TEST", ["example.com"])], fake)
+        cfg = make_config(h.port, [self.upstream.port], [app("TEST", ["example.com"])],
+                          listen_address=[UNBINDABLE], proactive_enabled=False)
+        with open(h.config_path, "w", encoding="utf-8") as fh:
+            json.dump(cfg, fh)
+        with self.assertLogs("appalias", level="ERROR") as logs:
+            h.call(h.relay.reload())
+        self.assertTrue(any("anciennes adresses conservées" in line for line in logs.output))
+        self.assertEqual(h.relay._listen_spec, (("127.0.0.1",), h.port))
+        self.assertIn("192.0.2.10", answer_ips(udp_query(h.port, "www.example.com")))
+        self.assertFalse(h.relay._stop.is_set())
+
+
+class ProxyIntegrationCachedTests(ProxyIntegrationTests):
+    """Toute la classe ProxyIntegrationTests rejouée avec le cache de réponses actif."""
+
+    def start(self, apps, fake, upstreams=None, asn_cache=None, **general):
+        general.setdefault("cache_enabled", True)
+        return super().start(apps, fake, upstreams=upstreams, asn_cache=asn_cache, **general)
 
 
 class LifecycleTests(unittest.TestCase):

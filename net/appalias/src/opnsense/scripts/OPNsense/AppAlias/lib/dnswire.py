@@ -60,6 +60,7 @@ MAX_CNAME_CHAIN = 16
 FLAG_QR = 0x8000
 FLAG_TC = 0x0200
 FLAG_RD = 0x0100
+FLAG_CD = 0x0010
 
 HEADER = struct.Struct("!HHHHHH")
 RR_FIXED = struct.Struct("!HHIH")
@@ -449,3 +450,238 @@ def build_query(qname, qtype, qid=None):
     # OPT (RFC 6891) : nom racine, type 41, classe = taille UDP, TTL 0, rdata vide
     opt = b"\x00" + RR_FIXED.pack(TYPE_OPT, QUERY_UDP_PAYLOAD, 0, 0)
     return header + question + opt
+
+
+# --- Cache de réponses (0.9) : clé, TTL, réécriture pour le client ---------
+
+TYPE_SOA = 6
+NEGATIVE_TTL_MAX = 300      # plafond du TTL de cache d'une réponse négative (s)
+# Plus utilisé depuis 0.9 : une réponse négative sans SOA n'est pas cachable
+# (RFC 2308). Gardé pour la compatibilité des imports.
+NEGATIVE_TTL_DEFAULT = 60
+FLAG_DO = 0x8000            # bit DO (DNSSEC OK) du TTL de l'OPT
+
+
+def question_span(msg):
+    """(début, fin) de la section question de msg, ou None.
+
+    None si le message est illisible, si qdcount != 1 ou si le nom de la
+    question contient un pointeur de compression.
+    """
+    try:
+        msg = bytes(msg)
+        if len(msg) < HEADER.size or len(msg) > MAX_MESSAGE:
+            return None
+        if HEADER.unpack_from(msg, 0)[2] != 1:
+            return None
+        pos = HEADER.size
+        total = 0
+        while True:
+            length = msg[pos]
+            if length == 0:
+                pos += 1
+                break
+            if length & 0xC0:
+                return None
+            total += length + 1
+            if total > MAX_NAME_LENGTH:
+                return None
+            pos += 1 + length
+        end = pos + Q_FIXED.size
+        if end > len(msg):
+            return None
+        return (HEADER.size, end)
+    except IndexError:
+        return None
+
+
+def walk_records(msg):
+    """Parcourt les sections réponse, autorité et additionnel.
+
+    Renvoie une liste de (section, name_offset, fixed_offset, rtype, rclass,
+    ttl, rdlength) avec section dans "an", "ns", "ar". fixed_offset est
+    l'offset de la partie fixe (type, classe, TTL, rdlength). Le TTL est la
+    valeur brute du message. Lève DnsError si le message est malformé ou si
+    le total d'enregistrements dépasse MAX_RECORDS.
+    """
+    if not isinstance(msg, (bytes, bytearray, memoryview)):
+        raise DnsError("type de message invalide")
+    msg = bytes(msg)
+    if len(msg) > MAX_MESSAGE:
+        raise DnsError("message trop grand")
+    if len(msg) < HEADER.size:
+        raise DnsError("en-tête tronqué")
+    _qid, _flags, qdcount, ancount, nscount, arcount = HEADER.unpack_from(msg, 0)
+    if qdcount + ancount + nscount + arcount > MAX_RECORDS:
+        raise DnsError("trop d'enregistrements")
+    pos = HEADER.size
+    for _ in range(qdcount):
+        _name, pos = read_name(msg, pos)
+        pos += Q_FIXED.size
+        if pos > len(msg):
+            raise DnsError("question tronquée")
+    out = []
+    for section, count in (("an", ancount), ("ns", nscount), ("ar", arcount)):
+        for _ in range(count):
+            name_offset = pos
+            _name, pos = read_name(msg, pos)
+            if pos + RR_FIXED.size > len(msg):
+                raise DnsError("enregistrement tronqué")
+            rtype, rclass, ttl, rdlength = RR_FIXED.unpack_from(msg, pos)
+            fixed_offset = pos
+            pos += RR_FIXED.size + rdlength
+            if pos > len(msg):
+                raise DnsError("rdata tronqué")
+            out.append((section, name_offset, fixed_offset, rtype, rclass, ttl, rdlength))
+    return out
+
+
+def edns_info(msg):
+    """(présent, taille UDP annoncée, bit DO) d'après l'OPT de l'additionnel.
+
+    (False, 512, False) sans OPT ou si le message est illisible.
+    """
+    try:
+        for section, _no, _fo, rtype, rclass, ttl, _rd in walk_records(msg):
+            if section == "ar" and rtype == TYPE_OPT:
+                return (True, rclass, bool(ttl & FLAG_DO))
+    except Exception:
+        pass
+    return (False, UDP_MIN_PAYLOAD, False)
+
+
+def question_tuple(msg):
+    """(qname, qtype, qclass) de la question de msg, lue octet par octet, ou None.
+
+    Le nom est passé en minuscules sur l'ASCII seulement (bytes.lower) : les
+    octets > 0x7F restent tels quels, deux noms qui ne diffèrent que par eux
+    ne se confondent pas. None si la question est illisible, compressée,
+    si qdcount != 1 ou si un label contient un point.
+    """
+    try:
+        msg = bytes(msg)
+        span = question_span(msg)
+        if span is None:
+            return None
+        labels = []
+        pos = span[0]
+        end = span[1] - Q_FIXED.size
+        while pos < end:
+            length = msg[pos]
+            if length == 0:
+                break
+            label = msg[pos + 1:pos + 1 + length]
+            if b"." in label:
+                return None
+            labels.append(label.lower().decode("latin-1"))
+            pos += 1 + length
+        qtype, qclass = Q_FIXED.unpack_from(msg, end)
+        return (".".join(labels), qtype, qclass)
+    except Exception:
+        return None
+
+
+def cache_key(query):
+    """(qname minuscule ASCII, qtype, qclass, do) d'une requête, ou None.
+
+    None si le message est illisible, si qdcount != 1, si c'est une réponse
+    (QR=1), si l'opcode n'est pas 0, si RD=0 (requête non récursive) ou si
+    CD=1 (validation DNSSEC désactivée) : ces deux dernières passent
+    toujours par l'amont et ne sont jamais mises en cache.
+    """
+    try:
+        query = bytes(query)
+        if len(query) < HEADER.size or len(query) > MAX_MESSAGE:
+            return None
+        _qid, flags, qdcount, _an, _ns, _ar = HEADER.unpack_from(query, 0)
+        if (qdcount != 1 or flags & FLAG_QR or (flags >> 11) & 0xF
+                or not flags & FLAG_RD or flags & FLAG_CD):
+            return None
+        question = question_tuple(query)
+        if question is None:
+            return None
+        return question + (edns_info(query)[2],)
+    except Exception:
+        return None
+
+
+def _effective_ttl(ttl):
+    return 0 if ttl > 0x7FFFFFFF else ttl
+
+
+def response_ttl(resp_bytes):
+    """TTL de cache d'une réponse, ou None si elle n'est pas cachable.
+
+    Non cachable : QR=0, TC=1, opcode != 0, rcode hors {0, 3}, qdcount != 1,
+    message illisible. Réponse positive : plus petit TTL de la section
+    réponse. Réponse négative (NXDOMAIN ou NODATA, section réponse vide) :
+    cachable seulement si l'autorité contient un SOA lisible (RFC 2308) ;
+    TTL = min(TTL du SOA, champ MINIMUM du SOA), plafonné à NEGATIVE_TTL_MAX.
+    Les OPT sont ignorés ; un TTL > 0x7FFFFFFF compte 0 (RFC 2181).
+    """
+    try:
+        msg = bytes(resp_bytes)
+        if len(msg) < HEADER.size or len(msg) > MAX_MESSAGE:
+            return None
+        _qid, flags, qdcount, _an, _ns, _ar = HEADER.unpack_from(msg, 0)
+        if (not flags & FLAG_QR or flags & FLAG_TC or (flags >> 11) & 0xF
+                or flags & 0xF not in (0, 3) or qdcount != 1):
+            return None
+        records = walk_records(msg)
+    except Exception:
+        return None
+    answers = [_effective_ttl(r[5]) for r in records if r[0] == "an" and r[3] != TYPE_OPT]
+    if answers:
+        return min(answers)
+    soa = []
+    for section, _no, fixed, rtype, _rc, ttl, rdlength in records:
+        if section != "ns" or rtype != TYPE_SOA:
+            continue
+        # rdata : mname, rname, puis serial, refresh, retry, expire, minimum (u32).
+        if rdlength < 22:
+            continue
+        end = fixed + RR_FIXED.size + rdlength
+        minimum = struct.unpack_from("!I", msg, end - 4)[0]
+        soa.append(min(_effective_ttl(ttl), _effective_ttl(minimum)))
+    if soa:
+        return min(min(soa), NEGATIVE_TTL_MAX)
+    return None
+
+
+def rewrite_for_client(query, cached, elapsed):
+    """Réponse à rendre au client à partir d'une réponse mise en cache.
+
+    ID et question viennent de la requête (casse 0x20 conservée), les TTL
+    (hors OPT) sont réduits de elapsed sans passer sous 0, l'OPT est retiré
+    si le client n'en a pas et s'il est le dernier enregistrement. Ne lève
+    jamais : en cas de doute, cached avec seulement l'ID remplacé.
+    """
+    try:
+        query = bytes(query)
+        cached = bytes(cached)
+        qid = query[:2]
+        try:
+            elapsed = max(int(elapsed), 0)
+            qspan = question_span(query)
+            cspan = question_span(cached)
+            if qspan is None or cspan is None or qspan[1] - qspan[0] != cspan[1] - cspan[0]:
+                return qid + cached[2:]
+            records = walk_records(cached)
+            msg = bytearray(cached)
+            msg[0:2] = qid
+            msg[cspan[0]:cspan[1]] = query[qspan[0]:qspan[1]]
+            for _sec, _no, fixed, rtype, _rc, ttl, _rd in records:
+                if rtype == TYPE_OPT:
+                    continue
+                struct.pack_into("!I", msg, fixed + 4, max(_effective_ttl(ttl) - elapsed, 0))
+            if records and not edns_info(query)[0]:
+                sec, name_off, _f, rtype, _rc, _t, _rd = records[-1]
+                if sec == "ar" and rtype == TYPE_OPT:
+                    del msg[name_off:]
+                    arcount = HEADER.unpack_from(msg, 0)[5]
+                    struct.pack_into("!H", msg, 10, arcount - 1)
+            return bytes(msg)
+        except Exception:
+            return qid + cached[2:]
+    except Exception:
+        return cached

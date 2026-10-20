@@ -44,6 +44,9 @@ Installation par copie, publication et maintenance : voir
 1. *Services > AppAlias > Settings* : indiquer le résolveur DNS amont (celui
    que le pare-feu utilisait jusque-là), activer, enregistrer. Pour chiffrer
    aussi les requêtes du relais, voir [DNS over TLS](#dns-over-tls-vers-lamont).
+   Le relais peut écouter sur plusieurs adresses (*Listen addresses*, séparées
+   par des virgules ; défaut `127.0.0.1`). Sans résolveur local, voir
+   [Sans Unbound ni Dnsmasq](#sans-unbound-ni-dnsmasq--le-relais-comme-dns-du-lan).
 2. **Unbound, mode automatique (opt-in)** : cocher *Forward application
    domains from Unbound* dans *Settings*. **Apply** écrit alors une zone de
    transfert par domaine des applications activées
@@ -113,6 +116,61 @@ Installation par copie, publication et maintenance : voir
      plus.
    - Compteurs dans `metrics.json` : envoyées, réussies, vides, échouées,
      adresses ajoutées.
+
+### Sans Unbound ni Dnsmasq : le relais comme DNS du LAN
+
+Depuis la 0.9, le relais peut servir directement les clients du LAN, sans
+résolveur sur le pare-feu :
+
+1. *Settings* : *Listen addresses* = l'adresse LAN du pare-feu (on peut en
+   garder plusieurs, par exemple `127.0.0.1,192.168.1.1`) et *Listen port* =
+   `53`.
+2. *Allowed client networks* : seules les requêtes de ces réseaux reçoivent
+   une réponse. Vide (défaut) : bouclage et réseaux privés (RFC 1918, ULA,
+   lien local). Toute autre source est ignorée **sans réponse**.
+3. *Response cache* (activé par défaut) : les réponses sont gardées selon leur
+   TTL, borné par `ttl_min + ttl_margin`, et servies sans interroger l'amont ;
+   les alias continuent d'être alimentés.
+4. *Rate limit per client* (100 requêtes/s par défaut, rafale du double,
+   0 = illimité, le bouclage n'est jamais limité) protège le relais d'un
+   poste trop bavard.
+5. **Apply**, puis indiquer l'adresse du pare-feu comme serveur DNS dans le
+   DHCP.
+
+Si le port d'écoute est celui d'Unbound alors qu'Unbound est activé, l'un des
+deux ne peut pas démarrer : l'interface affiche un avertissement. Ne jamais
+exposer le relais sur le WAN.
+
+### Sources ASN
+
+Le champ *ASNs* d'une application (par exemple `AS2906` pour Netflix) ajoute
+à son alias les préfixes BGP annoncés par ces systèmes autonomes, en plus des
+adresses résolues, sans dépendre du DNS.
+
+- Source : RIPEstat (HTTPS vers `stat.ripe.net`, certificat vérifié, réponse
+  limitée à 4 Mo).
+- Rafraîchissement : une fois par jour (tâche cron à 5 h ou 6 h, minute
+  dérivée du nom d'hôte) et après **Apply** pour les ASN pas encore connus.
+- Les réponses sont gardées dans `/var/db/appalias/asn.json` ; les préfixes
+  sont agrégés avant d'entrer dans l'alias.
+- Les préfixes ASN comptent dans le plafond d'entrées par application
+  (*Max. entries per application*), comme les CIDR manuels : au-delà, ils sont
+  tronqués (avertissement dans le journal) et il ne reste plus de place pour
+  les adresses résolues.
+- Préfixes refusés : plus larges que /8 (IPv4) ou /19 (IPv6), et plages non
+  routables sur Internet (privées, espace partagé 100.64.0.0/10, bouclage,
+  lien local, multicast, réservées). Un agrégat IPv6 plus large que /19
+  (par exemple un /12) est donc refusé : c'est un choix de prudence, un
+  tel bloc couvrirait bien plus que l'application.
+- Plugin désactivé : aucune connexion à RIPEstat (ni cron, ni Apply).
+- Ces préfixes ne font jamais l'objet de sondes DNS.
+- Vie privée : le RIPE NCC voit l'adresse du pare-feu. La case *ASN sources*
+  de *Settings* coupe toute connexion à RIPEstat.
+- Conseil : ne pas renseigner d'ASN pour une application hébergée sur une
+  plateforme partagée (CDN, cloud) : ses préfixes couvriraient d'autres
+  services.
+- *Settings* affiche le nombre de préfixes ASN ; la grille ajoute `+N ASN` aux
+  compteurs d'adresses de l'application.
 
 L'interface du plugin est en anglais (textes source OPNsense) ; les
 traductions viennent du projet de traduction d'OPNsense.
@@ -276,6 +334,13 @@ immédiat et la bascule aussi.
   temps de l'amont et celui de pf (`APP_X : ajout de N IP (amont 28 ms, pf
   12 ms)`). *Settings* affiche la moyenne et le p95 des 256 dernières
   mesures, par amont et pour pf.
+- **Backend pf** : par défaut (`auto`), le relais écrit dans les tables pf par
+  ioctl direct sur `/dev/pf`, sans lancer un processus `pfctl` par réponse. Si
+  l'ioctl échoue au démarrage, il se replie sur la commande `pfctl` (réglage
+  avancé *pf backend* : `auto`, `ioctl` ou `pfctl`). Le backend actif est
+  affiché dans *Settings*.
+- **Cache de réponses** : les réponses déjà vues sont servies sans
+  interroger l'amont (compteurs dans *Settings*).
 - Activer **Prefetch Support** dans *Services > Unbound DNS > Advanced* :
   Unbound rafraîchit les entrées populaires avant leur expiration, la
   réponse passe par le relais et l'alias reste à jour sans faire attendre le
@@ -298,8 +363,11 @@ immédiat et la bascule aussi.
   une application peut en toucher d'autres.
 - **Cache des clients** : une IP déjà en cache sur un poste n'est vue qu'à la
   prochaine résolution.
-- **Écoute** : laisser le relais sur `127.0.0.1` (défaut). Ouvert au LAN, un
-  client pourrait remplir les alias jusqu'au plafond par application.
+- **Écoute** : `127.0.0.1` par défaut. Le relais peut être ouvert au LAN
+  (voir [Sans Unbound ni Dnsmasq](#sans-unbound-ni-dnsmasq--le-relais-comme-dns-du-lan)) :
+  liste de réseaux clients autorisés, limite de débit par client et plafond
+  d'entrées par application limitent le remplissage abusif des alias. Ne
+  jamais l'exposer sur le WAN.
 - **Résolution proactive** : elle ne couvre ni `regexp:` ni `keyword:`, ni les
   noms dynamiques (par exemple `rN---sn-xxx.googlevideo.com`), qui restent
   couverts par le relais, ni les plateformes partagées (jamais sondées). Les
@@ -309,13 +377,13 @@ immédiat et la bascule aussi.
   principale pour les adresses réellement servies aux clients. Vider les
   caches (Unbound ou clients) ne change rien à son fonctionnement : le démon
   interroge directement l'amont.
-- **État actuel (0.8)** : catalogue v2fly (vérifié chaque heure, option)
+- **État actuel (0.9)** : relais ouvrable au LAN (cache, réseaux clients,
+  limite par client), backend pf par ioctl, sources ASN (RIPEstat), catalogue v2fly (vérifié chaque heure, option)
   suivi automatiquement par les applications importées, résolution
   proactive des noms `domain:` / `full:`, DNS over TLS vers
-  l'amont, état du relais avec sa version en tête de page ; les sources
-  ASN ne sont pas encore utilisées et les règles `keyword:` / `regexp:`
-  sont conservées mais jamais appliquées. La fonction de découverte (0.5 à
-  0.7.1) a été retirée en 0.8. Elle proposait des noms absents des règles ;
+  l'amont, état du relais avec sa version en tête de page ; les règles
+  `keyword:` / `regexp:` sont conservées mais jamais appliquées. La fonction
+  de découverte (0.5 à 0.7.1) a été retirée en 0.8. Elle proposait des noms absents des règles ;
   le relais et la résolution proactive ne traitent que les noms déjà présents
   dans les règles, plus leurs chaînes CNAME (les noms d'une chaîne CNAME d'un
   nom déjà couvert restent ajoutés par le relais). Pour compléter une

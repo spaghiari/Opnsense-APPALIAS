@@ -36,6 +36,21 @@ démon dans metrics.json au démarrage, retenue seulement si le PID correspond
 au processus en cours), « installed_version » celle des fichiers installés ;
 « restart_needed » est vrai quand elles diffèrent, null si inconnu.
 
+« warnings » : liste (possiblement vide) d'avertissements, chacun avec un
+code : « unbound_port_conflict » (port d'écoute égal au port d'Unbound
+activé, avec « port »), « pf_backend_fallback » (le démon en cours, PID
+vérifié, a dû replier sur pfctl ; cause dans « reason ») et
+« pf_backend_restart » (le backend pf configuré, « wanted », diffère de
+celui demandé au démarrage du démon en cours : redémarrage nécessaire).
+Les champs pf_backend* de latency.daemon ne sont exposés que pour le démon
+en cours (PID vérifié), null sinon.
+
+« asn » : sources ASN (asn_enabled, nombre d'ASN configurés présents dans le
+cache ASN, total de leurs préfixes, dernier succès de récupération, erreurs
+par ASN tronquées à MAX_TEXT caractères) ; par application, « asn_prefixes »
+est le nombre de préfixes retenus pour ses ASN (0 si les sources ASN sont
+désactivées).
+
 « --show <table> » : contenu d'une table gérée (action « appalias table_show »).
 Le nom est validé et doit appartenir à une application configurée.
 """
@@ -48,11 +63,15 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from lib import asn  # noqa: E402
 from lib import config as cfgmod  # noqa: E402
 from lib import metrics  # noqa: E402
 from lib.pftable import PfError, PfTable, valid_table  # noqa: E402
 from lib.state import State  # noqa: E402
 from lib.version import VERSION  # noqa: E402
+
+MAX_TEXT = 256   # longueur maximale d'un texte d'erreur exposé
+PF_BACKEND_FIELDS = ("pf_backend", "pf_backend_mode", "pf_backend_reason")
 
 
 def daemon_running(pidfile=cfgmod.PIDFILE):
@@ -82,6 +101,68 @@ def running_version(latency, pid):
     return str(version) if isinstance(version, str) and len(version) <= 32 else None
 
 
+def daemon_field(latency, pid, key):
+    """Champ key écrit par le démon en cours d'exécution (PID vérifié), ou None."""
+    info = latency.get("daemon") if isinstance(latency, dict) else None
+    if not isinstance(info, dict) or pid is None or info.get("pid") != pid:
+        return None
+    return info.get(key)
+
+
+def short_text(value):
+    """Chaîne tronquée à MAX_TEXT, ou None si ce n'est pas une chaîne non vide."""
+    return value[:MAX_TEXT] if isinstance(value, str) and value else None
+
+
+def verify_daemon_fields(latency, pid):
+    """Remplace les champs pf_backend* de latency.daemon par leur valeur vérifiée (PID)."""
+    info = latency.get("daemon") if isinstance(latency, dict) else None
+    if not isinstance(info, dict):
+        return
+    for key in PF_BACKEND_FIELDS:
+        if key in info:
+            info[key] = short_text(daemon_field(latency, pid, key))
+
+
+def warnings_for(cfg, latency, pid):
+    """Avertissements de configuration et d'exécution (liste de dicts)."""
+    out = []
+    unbound = cfg.unbound if isinstance(cfg.unbound, dict) else {}
+    if unbound.get("enabled"):
+        try:
+            port = int(unbound.get("port") or 53)
+        except (TypeError, ValueError):
+            port = 53
+        if cfg.listen_port == port:
+            out.append({"code": "unbound_port_conflict", "port": port})
+    reason = short_text(daemon_field(latency, pid, "pf_backend_reason"))
+    if reason:
+        out.append({"code": "pf_backend_fallback", "reason": reason})
+    mode = daemon_field(latency, pid, "pf_backend_mode")
+    if isinstance(mode, str) and mode != cfg.pf_backend:
+        out.append({"code": "pf_backend_restart", "wanted": cfg.pf_backend})
+    return out
+
+
+def asn_summary(cfg, cache):
+    """Résumé des sources ASN configurées, d'après le cache ASN."""
+    entries = cache.get("asns", {})
+    present = {}
+    for number in asn.needed_asns(cfg):
+        entry = entries.get(str(number))
+        if isinstance(entry, dict):
+            present[str(number)] = entry
+    fetched = [e["fetched"] for e in present.values() if e.get("fetched") is not None]
+    return {
+        "enabled": cfg.asn_enabled,
+        "asns": len(present),
+        "prefixes": sum(len(e.get("prefixes", [])) for e in present.values()),
+        "fetched": max(fetched) if fetched else None,
+        "errors": {k: short_text(e["error"]) for k, e in sorted(present.items())
+                   if e.get("error")},
+    }
+
+
 def count_families(entries):
     v4 = v6 = 0
     for entry in entries:
@@ -96,9 +177,11 @@ def count_families(entries):
     return v4, v6
 
 
-def status(config_path, state_path, pf, child_pidfile=cfgmod.CHILD_PIDFILE):
+def status(config_path, state_path, pf, child_pidfile=cfgmod.CHILD_PIDFILE,
+           asn_cache_path=asn.CACHE_PATH):
     out = {"status": "stopped", "pid": None, "apps": {}, "error": None, "latency": {},
-           "version": None, "installed_version": VERSION, "restart_needed": None}
+           "version": None, "installed_version": VERSION, "restart_needed": None,
+           "warnings": []}
     try:
         cfg = cfgmod.load(config_path)
     except cfgmod.ConfigError as exc:
@@ -112,10 +195,15 @@ def status(config_path, state_path, pf, child_pidfile=cfgmod.CHILD_PIDFILE):
         out["status"] = "disabled"
     state = State.load(state_path)
     out["latency"] = metrics.read(metrics.path_for(state_path))
+    child = child_pid(child_pidfile) if pid else None
     if pid:
-        out["version"] = running_version(out["latency"], child_pid(child_pidfile))
+        out["version"] = running_version(out["latency"], child)
         if out["version"] is not None:
             out["restart_needed"] = out["version"] != VERSION
+    out["warnings"] = warnings_for(cfg, out["latency"], child)
+    verify_daemon_fields(out["latency"], child)
+    asn_cache = asn.load_cache(asn_cache_path)
+    out["asn"] = asn_summary(cfg, asn_cache)
     for app in cfg.apps:
         item = {
             "uuid": app.uuid,
@@ -125,6 +213,8 @@ def status(config_path, state_path, pf, child_pidfile=cfgmod.CHILD_PIDFILE):
             "v6": 0,
             "last_hit": state.last_hit.get(app.table),
             "last_error": state.last_error.get(app.table),
+            "asn_prefixes": (len(asn.prefixes_for(asn.app_asns(app), asn_cache))
+                             if cfg.asn_enabled else 0),
         }
         try:
             item["v4"], item["v6"] = count_families(pf.show(app.table))

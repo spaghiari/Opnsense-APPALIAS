@@ -148,6 +148,15 @@
             upPlain: "{{ lang._('Upstream: plain DNS')|escape_js }}",
             latUpstream: "{{ lang._('Upstream')|escape_js }}",
             latPf: "{{ lang._('pf')|escape_js }}",
+            relCache: "{{ lang._('Cache: %s hits / %s misses (%s entries)')|escape_js }}",
+            relDropped: "{{ lang._('Clients dropped: rate limit %s, not allowed %s')|escape_js }}",
+            relPfBackend: "{{ lang._('pf backend:')|escape_js }}",
+            relAsn: "{{ lang._('ASN prefixes: %s in %s aliases')|escape_js }}",
+            asnSuffix: "{{ lang._('ASN')|escape_js }}",
+            asnSuffixHelp: "{{ lang._('prefixes from ASN sources')|escape_js }}",
+            warnUnboundPort: "{{ lang._('The relay listens on port %s, the port of Unbound, while Unbound is enabled: one of them cannot start. Change the listen port or disable Unbound.')|escape_js }}",
+            warnPfFallback: "{{ lang._('pf ioctl backend unavailable (%s): the pfctl command is used instead.')|escape_js }}",
+            warnPfRestart: "{{ lang._('Restart AppAlias to apply the pf backend %s.')|escape_js }}",
             latNone: "{{ lang._('no measurement yet')|escape_js }}",
             latSamples: "{{ lang._('samples')|escape_js }}",
             upPort853: "{{ lang._('Port set to 853 for DNS over TLS')|escape_js }}",
@@ -341,10 +350,17 @@
                             return '<span class="text-muted">-</span>';
                         }
                         let text = parseInt(st.v4 || 0) + ' / ' + parseInt(st.v6 || 0);
+                        let asnN = parseInt(st.asn_prefixes || 0);
+                        if (asnN > 0 && !st.last_error) {
+                            return $('<span></span>').text(text + ' ')
+                                .append($('<span class="text-muted"></span>')
+                                    .attr('title', T.asnSuffixHelp).text('+' + asnN + ' ' + T.asnSuffix))
+                                .prop('outerHTML');
+                        }
                         if (st.last_error) {
                             return $('<span class="text-danger"></span>')
                                 .attr('title', st.last_error.message || '')
-                                .text(text + ' ')
+                                .text(text + (asnN > 0 ? ' +' + asnN + ' ' + T.asnSuffix : '') + ' ')
                                 .append('<i class="fa fa-exclamation-triangle"></i>')
                                 .prop('outerHTML');
                         }
@@ -499,20 +515,44 @@
 
         function loadLatency() {
             ajaxGet('/api/appalias/service/status', {}, function (data, status) {
-                let lat = (data && data.latency) ? data.latency : {};
+                data = data || {};
+                let lat = data.latency || {};
                 let box = $('#latency-summary').empty().hide();
                 let parts = [];
                 $.each(lat.upstreams || {}, function (key, s) {
                     parts.push(latencyText(T.latUpstream + ' ' + String(key), s));
                 });
-                if (!parts.length && !lat.pf) {
-                    return;
+                if (parts.length || lat.pf) {
+                    if (!parts.length) {
+                        parts.push(latencyText(T.latUpstream, null));
+                    }
+                    parts.push(latencyText(T.latPf, lat.pf));
+                    box.text(parts.join(', ')).show();
                 }
-                if (!parts.length) {
-                    parts.push(latencyText(T.latUpstream, null));
+                // Seconde ligne : cache de reponses, clients ecartes, backend pf, prefixes ASN
+                let relay = $('#relay-summary').empty().hide();
+                let rparts = [];
+                let cache = lat.cache || {};
+                if (parseInt(cache.hits || 0) + parseInt(cache.misses || 0) > 0) {
+                    rparts.push(T.relCache.replace('%s', parseInt(cache.hits || 0))
+                        .replace('%s', parseInt(cache.misses || 0)).replace('%s', parseInt(cache.entries || 0)));
                 }
-                parts.push(latencyText(T.latPf, lat.pf));
-                box.text(parts.join(', ')).show();
+                let cl = lat.clients || {};
+                if (parseInt(cl.rate_limited || 0) + parseInt(cl.refused || 0) > 0) {
+                    rparts.push(T.relDropped.replace('%s', parseInt(cl.rate_limited || 0))
+                        .replace('%s', parseInt(cl.refused || 0)));
+                }
+                let backend = lat.daemon && lat.daemon.pf_backend;
+                if (backend) {
+                    rparts.push(T.relPfBackend + ' ' + String(backend));
+                }
+                if (lat.asn) {
+                    rparts.push(T.relAsn.replace('%s', parseInt(lat.asn.prefixes || 0))
+                        .replace('%s', parseInt(lat.asn.tables || 0)));
+                }
+                if (rparts.length) {
+                    relay.text(rparts.join(', ')).show();
+                }
             });
         }
 
@@ -999,8 +1039,27 @@
                 }
                 let restart = $('#appalias-restart-needed').empty().hide();
                 if (data.restart_needed) {
-                    restart.text(T.stRestart.replace('%s', String(data.version || '?'))
-                        .replace('%s', String(data.installed_version || '?'))).show();
+                    // remplacement par fonction : un « $& » dans la valeur reste littéral
+                    restart.text(T.stRestart.replace('%s', function () { return String(data.version || '?'); })
+                        .replace('%s', function () { return String(data.installed_version || '?'); })).show();
+                }
+                // avertissements du relais (conflit de port avec Unbound, backend pf : repli ou redemarrage)
+                let warns = $('#relay-warnings').empty().hide();
+                (data.warnings || []).forEach(function (w) {
+                    let text;
+                    if (w.code === 'unbound_port_conflict') {
+                        text = T.warnUnboundPort.replace('%s', function () { return String(w.port); });
+                    } else if (w.code === 'pf_backend_fallback') {
+                        text = T.warnPfFallback.replace('%s', function () { return String(w.reason || ''); });
+                    } else if (w.code === 'pf_backend_restart') {
+                        text = T.warnPfRestart.replace('%s', function () { return String(w.wanted || ''); });
+                    } else {
+                        text = String(w.code);
+                    }
+                    warns.append($('<div></div>').text(text));
+                });
+                if ((data.warnings || []).length) {
+                    warns.show();
                 }
                 relayRunning = !data.error && state === 'running';
                 applyRootWarningClass();
@@ -1225,6 +1284,7 @@
     <strong>{{ lang._('Relay') }}</strong>
     <span id="appalias-relay-badge" class="appalias-flex"></span>
     <div id="appalias-restart-needed" class="alert alert-warning" style="display: none" role="alert"></div>
+    <div id="relay-warnings" class="alert alert-warning" style="display: none" role="alert"></div>
 </div>
 
 <ul class="nav nav-tabs" data-tabs="tabs" id="maintabs">
@@ -1247,6 +1307,7 @@
                 <th data-column-id="name" data-type="string" data-formatter="appname">{{ lang._('Name') }}</th>
                 <th data-column-id="description" data-type="string">{{ lang._('Description') }}</th>
                 <th data-column-id="domains" data-type="string" data-formatter="rules">{{ lang._('Domains') }}</th>
+                <th data-column-id="asns" data-type="string" data-visible="false">{{ lang._('ASNs') }}</th>
                 <th data-column-id="networks" data-type="string" data-visible="false">{{ lang._('Networks') }}</th>
                 <th data-column-id="families" data-type="string">{{ lang._('Families') }}</th>
                 <th data-column-id="ipcount" data-type="string" data-formatter="ipcount" data-sortable="false">{{ lang._('IPs v4/v6') }}</th>
@@ -1328,6 +1389,7 @@
                 <div class="panel-body">
                     <p id="upstream-summary" style="display: none"></p>
                     <p id="latency-summary" class="text-muted" style="display: none"></p>
+                    <p id="relay-summary" class="text-muted" style="display: none"></p>
                     <p id="unbound-summary" class="text-muted"></p>
                     <div id="unbound-root-warning" class="alert alert-info" style="display: none" role="alert"></div>
                     <div id="unbound-errors" class="alert alert-warning" style="display: none" role="alert"></div>
@@ -1395,6 +1457,19 @@
                     falls back to plain DNS.
                 </li>
             </ul>
+
+            <h3>{{ lang._('Without Unbound or Dnsmasq on the firewall') }}</h3>
+            <p>
+                The relay can serve the LAN by itself: in <i>Settings</i>, set <i>Listen addresses</i> to the LAN
+                address of the firewall and <i>Listen port</i> to <code>53</code>. Keep <i>Allowed client networks</i>
+                empty (private networks) or list your LAN, enable <i>Response cache</i>, then Apply. Finally set the
+                address of the firewall as DNS server in your DHCP.
+            </p>
+            <p>
+                <b>ASN sources</b>: enter the ASNs of an application (for example <code>AS2906</code>) in its
+                dialog; the prefixes announced by these ASNs (RIPEstat) are added to its alias, in addition to the
+                resolved addresses. Do not use ASNs for applications hosted on shared platforms (CDN, cloud).
+            </p>
 
             <h2>{{ lang._('2. Catalog') }}</h2>
             <p>

@@ -37,8 +37,7 @@
         <type>select_multiple</type>
         <style>tokenize</style>
         <allownew>true</allownew>
-        <advanced>true</advanced>
-        <help>Planned for a later version: saved but not used yet.</help>
+        <help>Autonomous systems of the application, for example AS2906 (Netflix). Their announced prefixes (RIPEstat) are added to the alias in addition to the resolved addresses. Leave empty for applications hosted on shared platforms (CDN, cloud): their ASNs would cover other services.</help>
     </field>
     <field>
         <id>app.catalog_follow</id>

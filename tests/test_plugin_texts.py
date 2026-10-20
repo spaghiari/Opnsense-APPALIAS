@@ -70,7 +70,22 @@ class ModelTests(unittest.TestCase):
         self.root = ET.parse(os.path.join(MODEL_DIR, "AppAlias.xml")).getroot()
 
     def test_version_and_fields(self):
-        self.assertEqual(self.root.findtext("version"), "0.6.0")
+        self.assertEqual(self.root.findtext("version"), "0.9.0")
+        gen = self.root.find("items/general")
+        listen = gen.find("listen_address")
+        self.assertEqual((listen.findtext("AsList"), listen.findtext("Default")), ("Y", "127.0.0.1"))
+        cache = gen.find("cache_enabled")
+        self.assertEqual((cache.get("type"), cache.findtext("Default")), ("BooleanField", "1"))
+        pfb = gen.find("pf_backend")
+        self.assertEqual(pfb.findtext("Default"), "auto")
+        self.assertEqual([c.tag for c in pfb.find("OptionValues")], ["auto", "ioctl", "pfctl"])
+        rate = gen.find("client_rate_limit")
+        self.assertEqual((rate.findtext("Default"), rate.findtext("MinimumValue"), rate.findtext("MaximumValue")),
+                         ("100", "0", "100000"))
+        nets = gen.find("client_networks")
+        self.assertEqual((nets.findtext("AsList"), nets.findtext("Required"), nets.findtext("NetMaskAllowed")),
+                         ("Y", "N", "Y"))
+        self.assertEqual(gen.find("asn_enabled").findtext("Default"), "1")
         proto = self.root.find("items/general/upstream_protocol")
         self.assertEqual((proto.get("type"), proto.findtext("Default")), ("OptionField", "dns"))
         self.assertEqual(sorted(c.tag for c in proto.find("OptionValues")), ["dns", "dot"])
@@ -134,10 +149,10 @@ class ModelTests(unittest.TestCase):
             self.assertIn(name, volt)
 
     def test_plugin_version(self):
-        self.assertRegex(read(os.path.join(PLUGIN, "Makefile")), r"PLUGIN_VERSION=\s+0\.8\n")
-        self.assertIn("\n0.8\n", read(os.path.join(PLUGIN, "pkg-descr")))
+        self.assertRegex(read(os.path.join(PLUGIN, "Makefile")), r"PLUGIN_VERSION=\s+0\.9\n")
+        self.assertIn("\n0.9\n", read(os.path.join(PLUGIN, "pkg-descr")))
         from lib.version import VERSION
-        self.assertEqual(VERSION, "0.8")     # version écrite par le démon = paquet
+        self.assertEqual(VERSION, "0.9")     # version écrite par le démon = paquet
 
     def test_option_defaults_are_options(self):
         """Le défaut de chaque OptionField fait partie de ses OptionValues."""
