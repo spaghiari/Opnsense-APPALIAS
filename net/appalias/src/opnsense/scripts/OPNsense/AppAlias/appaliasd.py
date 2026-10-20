@@ -50,6 +50,40 @@ PROACTIVE_MAX_CONCURRENT sondes simultanées, PROACTIVE_RATE par seconde). Les
 réponses passent par process_response(hit=False) : jamais de
 « dernier usage », jamais de latence client.
 
+Cache (lib/cache.py, cache_enabled) : une réponse déjà en cache est rendue
+sans interroger l'amont, mais passe quand même par process_response (l'IP
+est dans la table avant la réponse). Seules les réponses de l'amont qui
+correspondent à la question sont mises en cache, jamais un SERVFAIL
+synthétisé. TTL plafonné à ttl_min + ttl_margin ; cache vidé à la
+désactivation.
+
+Clients (lib/clients.py) : une requête dont l'adresse source est hors des
+réseaux clients (client_networks, réseaux privés et bouclage par défaut) est
+ignorée sans réponse (pas d'amplification) ; au-delà de client_rate_limit
+requêtes par seconde et par client, elle est ignorée aussi (le bouclage et
+les adresses d'écoute du relais ne sont jamais limités). En TCP, la connexion
+est fermée ; une connexion dont l'adresse source est inconnue est refusée.
+
+ASN (lib/asn.py, asn_enabled) : les préfixes annoncés par les ASN d'une
+application, lus dans le cache ASN (asn_update.py), sont posés dans la table
+avec les CIDR manuels ; une IP DNS déjà couverte par un préfixe ASN n'est
+pas ajoutée. Ces préfixes ne sont jamais dans l'état et comptent dans le
+plafond max_entries_per_app (tronqués au besoin, avertissement journalisé).
+
+Backend pf (lib/pftable.make_backend, pf_backend) : ioctl sur /dev/pf ou
+pfctl, choisi au démarrage seulement (un changement demande un redémarrage) ;
+le backend actif, le mode demandé au démarrage et la cause d'un repli sur
+pfctl sont écrits dans metrics.json. Si le backend ioctl échoue en cours de
+route sur une erreur de structure (EINVAL, ENODEV, ENOTTY, EFAULT), le démon
+bascule définitivement sur pfctl et rejoue l'appel une fois.
+
+Écoute : une socket UDP et un serveur TCP par adresse de listen_addresses ;
+une adresse qui ne peut pas être ouverte est sautée (erreur journalisée) et
+réessayée toutes les LISTEN_RETRY_INTERVAL secondes ; le démarrage échoue
+seulement si aucune ne l'a été. Un rechargement qui ne peut ouvrir aucune des
+nouvelles adresses rouvre les anciennes ; si cela échoue aussi, le démon
+s'arrête (daemon(8) le relance).
+
 Version : le démon écrit la version de son code, son PID et son heure de
 démarrage dans metrics.json dès le démarrage (status.py la compare à la
 version installée).
@@ -63,6 +97,8 @@ configuration absente ou invalide. daemon(8) -R 10 relance le démon.
 
 import argparse
 import asyncio
+import bisect
+import errno
 import ipaddress
 import logging
 import os
@@ -74,14 +110,17 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from lib import asn  # noqa: E402
+from lib import cache  # noqa: E402
 from lib import config as cfgmod  # noqa: E402
 from lib import dnswire  # noqa: E402
 from lib import dot  # noqa: E402
 from lib import metrics  # noqa: E402
 from lib import proactive  # noqa: E402
 from lib import shared  # noqa: E402
+from lib.clients import ClientAcl, RateLimiter  # noqa: E402
 from lib.matcher import Matcher  # noqa: E402
-from lib.pftable import PfError, PfTable, normalize_entry  # noqa: E402
+from lib.pftable import PfError, PfTable, make_backend, normalize_entry  # noqa: E402
 from lib.state import State, compute_expiry  # noqa: E402
 from lib.version import VERSION  # noqa: E402
 
@@ -96,6 +135,9 @@ METRICS_INTERVAL = 15.0
 SWEEP_INTERVAL = 30.0
 SAVE_INTERVAL = 60.0
 PF_COOLDOWN = 30.0
+LISTEN_RETRY_INTERVAL = 60.0     # nouvel essai des adresses d'écoute en échec
+# errno d'un ioctl pf qui trahit une structure mal comprise par le noyau : repli pfctl.
+PF_FALLBACK_ERRNOS = frozenset((errno.EINVAL, errno.ENODEV, errno.ENOTTY, errno.EFAULT))
 MAX_INFLIGHT_QUERIES = 512
 MAX_TCP_CLIENTS = 128
 PROACTIVE_MAX_CONCURRENT = 2     # sondes proactives simultanées au plus
@@ -161,11 +203,18 @@ class _UdpServer(asyncio.DatagramProtocol):
     def __init__(self, relay):
         self.relay = relay
         self.transport = None
+        self.closed = asyncio.get_running_loop().create_future()   # socket réellement fermée
 
     def connection_made(self, transport):
         self.transport = transport
 
+    def connection_lost(self, exc):
+        if not self.closed.done():
+            self.closed.set_result(None)
+
     def datagram_received(self, data, addr):
+        if not self.relay.accept_client(addr[0]):
+            return  # rien n'est renvoyé : pas d'amplification
         self.relay.spawn(self._handle(data, addr))
 
     async def _handle(self, data, addr):
@@ -198,9 +247,13 @@ class _UdpClient(asyncio.DatagramProtocol):
 # --- relais ---------------------------------------------------------------
 class Relay:
     def __init__(self, cfg, pf, state_path=cfgmod.STATE_PATH, config_path=cfgmod.CONFIG_PATH,
-                 clock=time.time, tls_cafile=dot.CA_BUNDLE):
+                 clock=time.time, tls_cafile=dot.CA_BUNDLE, asn_cache_path=asn.CACHE_PATH):
         self.cfg = cfg
         self.pf = pf
+        self.asn_cache_path = asn_cache_path
+        self.pf_backend_mode = cfg.pf_backend   # backend choisi au démarrage seulement
+        # Backend de repli à chaud (ioctl en échec) ; remplaçable par les tests.
+        self.pfctl_factory = lambda: PfTable(tmpdir=os.path.dirname(state_path) or None)
         self.state_path = state_path
         self.config_path = config_path
         self.clock = clock
@@ -230,8 +283,12 @@ class Relay:
         self._cooldown = {}      # table -> fin de la pause après un échec pfctl
         self._cap_logged = set()
         self._tcp_clients = 0
-        self._udp_transport = None
-        self._tcp_server = None
+        self._udp_transports = []
+        self._tcp_servers = []
+        self._listening = []     # adresses effectivement ouvertes
+        self._listen_spec = None         # (adresses, port) demandés à la dernière ouverture
+        self._listen_missing = set()     # adresses de _listen_spec pas encore ouvertes
+        self.listen_retry_interval = LISTEN_RETRY_INTERVAL
         self._sem = None
         self.started = time.time()
         self._config_gen = 0     # incrémenté à chaque configuration appliquée
@@ -241,6 +298,12 @@ class Relay:
         self._proactive_active = 0     # sondes en cours
         self._proactive_task = None
         self._proactive_rng = random.Random()
+        self.cache = cache.Cache(clock=clock)
+        self.acl = ClientAcl()
+        self.limiter = None
+        self._asn_prefixes = {}  # table -> préfixes ASN (texte canonique)
+        self._asn_nets = {}      # table -> {version: (débuts, fins)} triés, pour bisect
+        self._asn_cap_logged = set()
         self._apply_config(cfg)
 
     # -- configuration --
@@ -252,7 +315,107 @@ class Relay:
                                platforms=shared.load(extra=cfg.shared_platforms_extra))
         self._update_pools(cfg)
         self.metrics.retain({self._upstream_key(u) for u in cfg.upstreams})
+        self._update_clients(cfg)
+        self._update_cache(cfg)
+        self._update_asn(cfg)
+        if cfg.pf_backend != self.pf_backend_mode:
+            log.info("backend pf : redémarrage nécessaire pour appliquer %s", cfg.pf_backend)
         self._update_proactive(cfg)
+
+    def _update_clients(self, cfg):
+        """ACL reconstruite ; limiteur recréé seulement si le débit change (seaux conservés)."""
+        self.acl = ClientAcl(cfg.client_networks)
+        if self.limiter is None or self.limiter.rate != float(cfg.client_rate_limit or 0):
+            self.limiter = RateLimiter(cfg.client_rate_limit)
+        # Unbound sort par l'IP du pare-feu quand aucune adresse de bouclage n'écoute.
+        self.limiter.set_exempt(cfg.listen_addresses)
+
+    def _update_cache(self, cfg):
+        self.cache.max_ttl = min(86400, cfg.ttl_min + cfg.ttl_margin)
+        if not cfg.cache_enabled:
+            self.cache.clear()
+
+    def _update_asn(self, cfg):
+        """Préfixes ASN par table, relus dans le cache ASN (vide si asn_enabled est faux)."""
+        old = {t: len(p) for t, p in self._asn_prefixes.items()}
+        if cfg.asn_enabled:
+            prefixes = asn.prefixes_by_table(cfg, asn.load_cache(self.asn_cache_path))
+        else:
+            prefixes = {}
+        apps = {a.table: a for a in cfg.apps}
+        for table, items in list(prefixes.items()):
+            app = apps.get(table)
+            limit = max(cfg.max_entries_per_app - (len(app.networks) if app else 0), 0)
+            if len(items) > limit:
+                if table not in self._asn_cap_logged:
+                    log.warning("%s : %d préfixes ASN, tronqués à %d (plafond de %d entrées)",
+                                table, len(items), limit, cfg.max_entries_per_app)
+                    self._asn_cap_logged.add(table)
+                prefixes[table] = items[:limit]
+            else:
+                self._asn_cap_logged.discard(table)
+        self._asn_prefixes = prefixes
+        self._asn_nets = {t: self._intervals(p) for t, p in prefixes.items() if p}
+        self.metrics.set_asn(sum(1 for p in prefixes.values() if p),
+                             sum(len(p) for p in prefixes.values()))
+        for table in sorted(set(old) | set(prefixes)):
+            count = len(prefixes.get(table, ()))
+            if old.get(table, 0) != count:
+                log.info("%s : %d préfixes ASN", table, count)
+
+    @staticmethod
+    def _intervals(prefixes):
+        """{version: (débuts, fins)} : intervalles fusionnés et triés des préfixes."""
+        spans = {4: [], 6: []}
+        for prefix in prefixes:
+            try:
+                net = ipaddress.ip_network(prefix, strict=False)
+            except ValueError:
+                continue
+            spans[net.version].append((int(net.network_address), int(net.broadcast_address)))
+        out = {}
+        for version, items in spans.items():
+            starts, ends = [], []
+            for start, end in sorted(items):
+                if ends and start <= ends[-1] + 1:
+                    ends[-1] = max(ends[-1], end)
+                else:
+                    starts.append(start)
+                    ends.append(end)
+            out[version] = (starts, ends)
+        return out
+
+    def _asn_covered(self, table, ip):
+        """Vrai si l'IP est couverte par un préfixe ASN de la table (recherche dichotomique)."""
+        nets = self._asn_nets.get(table)
+        if not nets:
+            return False
+        starts, ends = nets.get(ip.version, ((), ()))
+        value = int(ip)
+        i = bisect.bisect_right(starts, value) - 1
+        return i >= 0 and value <= ends[i]
+
+    def _manual_entries(self, app):
+        """CIDR manuels puis préfixes ASN de l'application, sans doublon, ordre conservé."""
+        manual = [normalize_entry(n) for n in app.networks]
+        return list(dict.fromkeys(manual + self._asn_prefixes.get(app.table, [])))
+
+    # -- clients --
+    def accept_client(self, ip):
+        """Vrai si le client ip peut être servi (réseau autorisé, débit respecté)."""
+        if not self.acl.allowed(ip):
+            self.metrics.add_client("refused")
+            log.debug("requête de %s ignorée : hors des réseaux clients", ip)
+            return False
+        return self._rate_ok(ip)
+
+    def _rate_ok(self, ip):
+        if self.limiter.allow(ip):
+            return True
+        self.metrics.add_client("rate_limited")
+        self._warn_limited(("client", ip), "client %s : débit de %d requêtes/s dépassé, "
+                           "requêtes ignorées" % (ip, self.cfg.client_rate_limit))
+        return False
 
     def _update_proactive(self, cfg):
         """Reconstruit les cibles proactives ; Scheduler recréé si les intervalles changent."""
@@ -305,7 +468,8 @@ class Relay:
         self._pools = {}
 
     def _dns_entry_ok(self, app, ip):
-        return app.family_ok(ip) and not self.cfg.excluded(ip) and not app.covered(ip)
+        return (app.family_ok(ip) and not self.cfg.excluded(ip) and not app.covered(ip)
+                and not self._asn_covered(app.table, ip))
 
     # -- pfctl sérialisé --
     def _lock(self, table):
@@ -328,7 +492,13 @@ class Relay:
             return False
         loop = asyncio.get_running_loop()
         try:
-            await loop.run_in_executor(None, func, table, *args)
+            try:
+                await loop.run_in_executor(None, func, table, *args)
+            except PfError as exc:
+                retry = self._pf_fallback(func, exc)
+                if retry is None:
+                    raise
+                await loop.run_in_executor(None, retry, table, *args)   # un seul nouvel essai
         except PfError as exc:
             now = self.clock()
             self.state.error(table, now, exc)
@@ -340,8 +510,39 @@ class Relay:
         self.state.clear_error(table)
         return True
 
+    def _pf_fallback(self, func, exc):
+        """Méthode équivalente du backend pfctl si l'échec ioctl justifie la bascule, sinon None.
+
+        Bascule définitive : self.pf devient un PfTable (fallback_reason posé).
+        Un appel lancé sur l'ancien backend avant la bascule est rejoué sur le
+        nouveau sans nouvelle bascule.
+        """
+        owner = getattr(func, "__self__", None)
+        name = getattr(func, "__name__", None)
+        if (name is None or getattr(owner, "name", None) != "ioctl"
+                or getattr(exc, "errno", None) not in PF_FALLBACK_ERRNOS):
+            return None
+        if self.pf is owner:
+            try:
+                backend = self.pfctl_factory()
+            except Exception as err:
+                log.error("repli sur pfctl impossible : %s", err)
+                return None
+            reason = str(exc)
+            try:
+                backend.fallback_reason = reason
+            except AttributeError:
+                pass
+            self.pf = backend
+            log.error("backend pf ioctl en échec (%s) : bascule définitive sur pfctl", reason)
+        if getattr(self.pf, "name", None) == "ioctl":
+            return None
+        return getattr(self.pf, name, None)
+
     async def restore_tables(self):
-        """Remplace chaque table par IP DNS valides + CIDR manuels ; vide les apps désactivées.
+        """Remplace chaque table par IP DNS valides + CIDR manuels + préfixes ASN.
+
+        Les tables des applications désactivées sont vidées.
 
         Chaque replace est calculé et exécuté sous le verrou de la table, à
         partir de l'état et des IP en cours d'ajout.
@@ -370,10 +571,11 @@ class Relay:
                         kept.append(ipstr)
                     else:
                         self.state.remove(table, ipstr)
-                manual = [normalize_entry(n) for n in app.networks]
+                manual = self._manual_entries(app)
                 if await self._pf(table, self.pf.replace, manual + kept, force=True):
-                    log.info("%s : table remplacée (%d IP DNS, %d CIDR manuels)",
-                             table, len(kept), len(manual))
+                    log.info("%s : table remplacée (%d IP DNS, %d CIDR manuels, %d préfixes ASN)",
+                             table, len(kept), len(app.networks),
+                             len(self._asn_prefixes.get(table, ())))
 
     # -- tâches --
     def spawn(self, coro):
@@ -393,15 +595,30 @@ class Relay:
             return None
         async with self._sem:
             stream = self.cfg.upstream_protocol == "dot"
+            expect = dnswire.question_key(query)
+            use_cache = self.cfg.cache_enabled
+            if use_cache:
+                hit = self.cache.get(query)
+                if hit is not None:
+                    self.metrics.add_cache(True)
+                    try:
+                        await self.process_response(hit, expect=expect)
+                    except Exception as exc:  # la réponse part quoi qu'il arrive
+                        log.error("erreur interne au traitement d'une réponse : %s", exc)
+                    # Réponse en cache (UDP, TCP ou DoT) : bornée à la taille UDP du client.
+                    return dnswire.fit_udp(query, hit) if proto == "udp" else hit
+                self.metrics.add_cache(False)
             timing = {}
             resp = await self.forward(query, proto, timing)
             if resp is None:
-                return dnswire.make_servfail(query)
+                return dnswire.make_servfail(query)   # jamais mis en cache
             try:
-                await self.process_response(resp, expect=dnswire.question_key(query),
+                await self.process_response(resp, expect=expect,
                                             upstream_ms=timing.get("upstream_ms"))
             except Exception as exc:  # la réponse part quoi qu'il arrive
                 log.error("erreur interne au traitement d'une réponse : %s", exc)
+            if use_cache and expect is not None and dnswire.question_key(resp) == expect:
+                self.cache.put(query, resp)   # seulement une réponse à cette question
             if proto == "udp" and stream:
                 # Réponse lue sur un flux : bornée à la taille UDP du client (TC=1 sinon).
                 return dnswire.fit_udp(query, resp)
@@ -491,6 +708,13 @@ class Relay:
                 pass
 
     async def _tcp_client(self, reader, writer):
+        peer = writer.get_extra_info("peername")
+        ip = peer[0] if isinstance(peer, (tuple, list)) and peer and isinstance(peer[0], str) else None
+        if ip is None or not self.acl.allowed(ip):
+            self.metrics.add_client("refused")
+            log.debug("connexion TCP de %s fermée : hors des réseaux clients", ip or "(inconnu)")
+            writer.close()
+            return
         if self._tcp_clients >= self.max_tcp_clients:
             log.debug("trop de connexions TCP simultanées, connexion fermée")
             writer.close()
@@ -503,6 +727,8 @@ class Relay:
                 if size < 12:
                     break
                 query = await asyncio.wait_for(reader.readexactly(size), TCP_IDLE_TIMEOUT)
+                if not self._rate_ok(ip):
+                    break                       # débit dépassé : connexion fermée
                 resp = await self.handle_query(query, "tcp")
                 if resp is None:
                     break
@@ -570,7 +796,8 @@ class Relay:
                 new.append((ipstr, expiry))
             if not new or self.in_cooldown(table):
                 continue
-            room = self.cfg.max_entries_per_app - self.state.count(table) - len(app.networks)
+            room = (self.cfg.max_entries_per_app - self.state.count(table) - len(app.networks)
+                    - len(self._asn_prefixes.get(table, ())))
             if len(new) > room:
                 if table not in self._cap_logged:
                     log.warning("%s : plafond de %d entrées atteint, %d IP non ajoutées",
@@ -758,7 +985,7 @@ class Relay:
             async with self._lock(table):
                 expired = self.state.expired(now).get(table, [])
                 app = self.apps.get(table)
-                manual = set(normalize_entry(n) for n in app.networks) if app else set()
+                manual = set(self._manual_entries(app)) if app else set()
                 todo = [ip for ip in expired
                         if ip not in manual and (table, ip) not in self._inflight]
                 for ip in expired:
@@ -782,10 +1009,14 @@ class Relay:
 
     def daemon_info(self):
         """Version du code en cours d'exécution, PID et démarrage (metrics.json)."""
-        return {"version": VERSION, "pid": os.getpid(), "started": int(self.started)}
+        return {"version": VERSION, "pid": os.getpid(), "started": int(self.started),
+                "pf_backend": getattr(self.pf, "name", "pfctl"),
+                "pf_backend_mode": self.pf_backend_mode,
+                "pf_backend_reason": getattr(self.pf, "fallback_reason", None)}
 
     def save_metrics(self, force=False):
         """Écrit metrics.json si une mesure a changé depuis la dernière écriture."""
+        self.metrics.set_cache_entries(len(self.cache))
         if self.metrics.version == self._metrics_saved and not force:
             return
         try:
@@ -806,25 +1037,85 @@ class Relay:
                 log.error("tâche périodique en erreur : %s", exc)
 
     # -- écoute --
-    async def open_listeners(self):
+    @staticmethod
+    def _endpoint(addr, port):
+        return "[%s]:%d" % (addr, port) if ":" in addr else "%s:%d" % (addr, port)
+
+    async def _open_one(self, addr, port):
+        """UDP puis TCP sur addr:port ; OSError (rien ne reste ouvert) en cas d'échec."""
         loop = asyncio.get_running_loop()
-        addr, port = self.cfg.listen_address, self.cfg.listen_port
-        self._udp_transport, _ = await loop.create_datagram_endpoint(
+        udp, _ = await loop.create_datagram_endpoint(
             lambda: _UdpServer(self), local_addr=(addr, port))
-        self._tcp_server = await asyncio.start_server(self._tcp_client, addr, port)
-        log.info("écoute sur %s port %d (UDP et TCP)", addr, port)
+        try:
+            tcp = await asyncio.start_server(self._tcp_client, addr, port)
+        except OSError:
+            udp.close()
+            raise
+        self._udp_transports.append(udp)
+        self._tcp_servers.append(tcp)
+        self._listening.append(self._endpoint(addr, port))
+
+    async def open_listeners(self, addresses=None, port=None):
+        """UDP et TCP sur chaque adresse (celles de la configuration par défaut).
+
+        Une adresse en échec est journalisée et notée pour retry_listeners ;
+        OSError si aucune n'a pu être ouverte (rien n'est alors ouvert).
+        """
+        if addresses is None:
+            addresses = self.cfg.listen_addresses or [self.cfg.listen_address]
+        port = self.cfg.listen_port if port is None else port
+        missing = set()
+        for addr in addresses:
+            try:
+                await self._open_one(addr, port)
+            except OSError as exc:
+                log.error("écoute impossible sur %s : %s", self._endpoint(addr, port), exc)
+                missing.add(addr)
+        if not self._listening:
+            self._listen_missing = set()
+            raise OSError("aucune adresse d'écoute n'a pu être ouverte (port %d)" % port)
+        self._listen_spec = (tuple(addresses), port)
+        self._listen_missing = missing
+        log.info("écoute sur %s (UDP et TCP)", ", ".join(self._listening))
+
+    async def retry_listeners(self):
+        """Nouvel essai des adresses d'écoute qui n'avaient pas pu être ouvertes."""
+        if self._listen_spec is None or not self._listen_missing or not self._listening:
+            return
+        port = self._listen_spec[1]
+        for addr in sorted(self._listen_missing):
+            try:
+                await self._open_one(addr, port)
+            except OSError as exc:
+                log.debug("écoute toujours impossible sur %s : %s", self._endpoint(addr, port), exc)
+                continue
+            self._listen_missing.discard(addr)
+            log.info("écoute ouverte sur %s (adresse devenue disponible)", self._endpoint(addr, port))
 
     async def close_listeners(self):
-        if self._udp_transport is not None:
-            self._udp_transport.close()
-            self._udp_transport = None
-        if self._tcp_server is not None:
-            self._tcp_server.close()
+        # La socket UDP n'est fermée qu'à une itération suivante de la boucle :
+        # on attend connection_lost pour pouvoir rouvrir aussitôt le même port.
+        waits = []
+        for transport in self._udp_transports:
+            transport.close()
+            protocol = transport.get_protocol()
+            if isinstance(protocol, _UdpServer):
+                waits.append(protocol.closed)
+        self._udp_transports = []
+        if waits:
             try:
-                await self._tcp_server.wait_closed()
+                await asyncio.wait_for(asyncio.gather(*waits), 2.0)
+            except asyncio.TimeoutError:
+                pass
+        servers, self._tcp_servers = self._tcp_servers, []
+        for server in servers:
+            server.close()
+            try:
+                await server.wait_closed()
             except Exception:
                 pass
-            self._tcp_server = None
+        self._listening = []
+        self._listen_missing = set()
 
     async def reload(self):
         try:
@@ -832,15 +1123,31 @@ class Relay:
         except cfgmod.ConfigError as exc:
             log.error("rechargement refusé, configuration conservée : %s", exc)
             return
-        old = (self.cfg.listen_address, self.cfg.listen_port)
+        old = self._listen_spec
         self._apply_config(new_cfg)
         logging.getLogger("appalias").setLevel(new_cfg.log_level)
         await self.restore_tables()
-        if (new_cfg.listen_address, new_cfg.listen_port) != old:
-            await self.close_listeners()
-            await self.open_listeners()
+        if (tuple(new_cfg.listen_addresses), new_cfg.listen_port) != old:
+            await self._reopen_listeners(old)
         self._log_upstream()
         log.info("configuration rechargée (%d applications)", len(self.apps))
+
+    async def _reopen_listeners(self, old):
+        """Nouvelles adresses d'écoute ; anciennes rouvertes si aucune ne peut l'être."""
+        await self.close_listeners()
+        try:
+            await self.open_listeners()
+            return
+        except OSError as exc:
+            log.error("rechargement : aucune nouvelle adresse d'écoute ouverte (%s), "
+                      "anciennes adresses conservées", exc)
+        try:
+            if old is None:
+                raise OSError("aucune adresse d'écoute précédente")
+            await self.open_listeners(list(old[0]), old[1])
+        except OSError as exc:
+            log.critical("écoute impossible, arrêt du relais (relance par daemon(8)) : %s", exc)
+            self.request_stop()
 
     def _log_upstream(self):
         if self.cfg.upstream_protocol == "dot":
@@ -881,6 +1188,7 @@ class Relay:
             asyncio.ensure_future(self._periodic(self.save_interval, self.save_state)),
             asyncio.ensure_future(self._periodic(DOT_PRUNE_INTERVAL, self.prune_pools)),
             asyncio.ensure_future(self._periodic(METRICS_INTERVAL, self.save_metrics)),
+            asyncio.ensure_future(self._periodic(self.listen_retry_interval, self.retry_listeners)),
         ]
         # Version du code en cours d'exécution, visible tout de suite dans l'état.
         self.save_metrics(force=True)
@@ -920,8 +1228,13 @@ def main(argv=None):
     logging.getLogger("appalias").setLevel(cfg.log_level)
     if not cfg.enabled:
         log.warning("le plugin est désactivé dans la configuration ; démarrage quand même")
-    relay = Relay(cfg, PfTable(tmpdir=os.path.dirname(args.state) or None),
-                  state_path=args.state, config_path=args.config)
+    try:
+        pf = make_backend(cfg.pf_backend, tmpdir=os.path.dirname(args.state) or None)
+    except (PfError, OSError, ImportError) as exc:
+        log.error("backend pf « %s » indisponible : %s", cfg.pf_backend, exc)
+        return EXIT_RUNTIME
+    log.info("backend pf : %s", getattr(pf, "name", "pfctl"))
+    relay = Relay(cfg, pf, state_path=args.state, config_path=args.config)
     try:
         asyncio.run(relay.run())
     except OSError as exc:

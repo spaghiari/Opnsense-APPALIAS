@@ -73,6 +73,12 @@ function appalias_services()
  * remplace jamais le catalogue sans contrôle de cohérence, et les applications
  * qui suivent le catalogue sont mises à jour automatiquement ; les autres
  * nouveautés passent par le diff.
+ *
+ * Sources ASN (RIPEstat) : si le plugin est activé (general.enabled) et que
+ * general.asn_enabled vaut 1, une tâche quotidienne rafraîchit les préfixes BGP annoncés par les ASN des
+ * applications. Minute dérivée du nom d'hôte comme ci-dessus, heure 5 h ou
+ * 6 h (pour ne pas coïncider avec le catalogue). Le script prend son propre
+ * verrou et recharge le relais quand des préfixes changent.
  */
 function appalias_cron()
 {
@@ -85,6 +91,14 @@ function appalias_cron()
             '/usr/local/sbin/configctl -d appalias catalog_update',
             (string)($hash % 60),
             $schedule == 'hourly' ? '*' : (string)(1 + intdiv($hash, 60) % 4),
+        ];
+    }
+    if ((string)$mdl->general->enabled == '1' && (string)$mdl->general->asn_enabled == '1') {
+        $hash = crc32((string)gethostname());
+        $jobs[]['autocron'] = [
+            '/usr/local/sbin/configctl -d appalias asn_update',
+            (string)($hash % 60),
+            (string)(5 + intdiv($hash, 60) % 2),
         ];
     }
     return $jobs;

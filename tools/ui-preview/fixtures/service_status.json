@@ -1,8 +1,8 @@
 {
   "status": "running",
   "pid": 4821,
-  "version": "0.6",
-  "installed_version": "0.6",
+  "version": "0.9",
+  "installed_version": "0.9",
   "restart_needed": false,
   "error": null,
   "apps": {
@@ -12,6 +12,7 @@
       "enabled": true,
       "v4": 18,
       "v6": 6,
+      "asn_prefixes": 42,
       "last_hit": 1792300000.0,
       "last_error": null
     },
@@ -55,7 +56,31 @@
       "window": 256,
       "avg_ms": 0.4,
       "p95_ms": 1.1
+    },
+    "cache": {
+      "hits": 2954,
+      "misses": 1166,
+      "entries": 812
+    },
+    "clients": {
+      "rate_limited": 3,
+      "refused": 17
+    },
+    "daemon": {
+      "pf_backend": "ioctl"
+    },
+    "asn": {
+      "tables": 1,
+      "prefixes": 42
     }
+  },
+  "warnings": [],
+  "asn": {
+    "enabled": true,
+    "asns": 1,
+    "prefixes": 42,
+    "fetched": 1792280000.0,
+    "errors": {}
   },
   "widget": {
     "caption_restart": "Restart",

@@ -29,4 +29,4 @@ status.py, lancé à chaque appel, lit celle qui est installée sur le disque :
 une différence signale un redémarrage nécessaire.
 """
 
-VERSION = "0.8"
+VERSION = "0.9"

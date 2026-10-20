@@ -114,6 +114,11 @@ class ServiceController extends ApiMutableServiceControllerBase
             $res = $backend->configdRun('appalias stop');
             return ['status' => trim($res) === 'OK' ? 'ok' : 'failed'];
         }
+
+        // Préfixes ASN manquants (plugin activé seulement) : récupération en tâche de fond
+        // (action configd détachée côté script), sans bloquer l'Apply ; le script recharge
+        // le relais si des préfixes changent et ne fait rien si les sources ASN sont coupées.
+        $backend->configdRun('appalias asn_update_needed');
         $status = $this->statusAction();
         if (($status['status'] ?? '') == 'running') {
             $res = $backend->configdRun('appalias reload');

@@ -255,5 +255,180 @@ class BuildQueryTests(unittest.TestCase):
                     dnswire.build_query("example.com", "A", qid=bad)
 
 
+
+def add_opt(msg, do=False, payload=1232):
+    """Ajoute un OPT à la fin du message et incrémente ARCOUNT."""
+    ttl = 0x8000 if do else 0
+    out = bytearray(msg + b"\x00" + dnswire.RR_FIXED.pack(41, payload, ttl, 0))
+    count = struct.unpack_from("!H", out, 10)[0]
+    struct.pack_into("!H", out, 10, count + 1)
+    return bytes(out)
+
+
+def add_authority(msg, rtype, ttl, rdata=b""):
+    """Insère un enregistrement d'autorité (nom racine) avant l'additionnel (aucun ici)."""
+    out = bytearray(msg + b"\x00" + dnswire.RR_FIXED.pack(rtype, 1, ttl, len(rdata)) + rdata)
+    count = struct.unpack_from("!H", out, 8)[0]
+    struct.pack_into("!H", out, 8, count + 1)
+    return bytes(out)
+
+
+def soa_rdata(minimum):
+    """rdata SOA minimal : mname et rname racine, puis les cinq compteurs."""
+    return b"\x00\x00" + struct.pack("!IIIII", 1, 3600, 600, 86400, minimum)
+
+
+def set_rcode(msg, rcode):
+    out = bytearray(msg)
+    flags = struct.unpack_from("!H", out, 2)[0]
+    struct.pack_into("!H", out, 2, (flags & 0xFFF0) | rcode)
+    return bytes(out)
+
+
+class CacheHelpersTests(unittest.TestCase):
+    def setUp(self):
+        self.resp = add_opt(build_response("www.example.com", [
+            ("www.example.com", TYPE_CNAME, 300, "edge.example.net"),
+            ("edge.example.net", TYPE_A, 120, "192.0.2.1")]))
+
+    def test_question_span(self):
+        q = build_query("www.example.com")
+        self.assertEqual(dnswire.question_span(q), (12, len(q)))
+        self.assertIsNone(dnswire.question_span(b"\x00" * 5))
+        self.assertIsNone(dnswire.question_span(q[:-2]))
+        two = bytearray(q)
+        struct.pack_into("!H", two, 4, 2)
+        self.assertIsNone(dnswire.question_span(bytes(two)))
+        compressed = q[:12] + b"\xc0\x0c" + q[-4:]
+        self.assertIsNone(dnswire.question_span(compressed))
+
+    def test_walk_records(self):
+        recs = dnswire.walk_records(self.resp)
+        self.assertEqual([(r[0], r[3]) for r in recs], [("an", 5), ("an", 1), ("ar", 41)])
+        self.assertEqual([r[5] for r in recs], [300, 120, 0])
+        for sec, name_off, fixed, rtype, rclass, ttl, rdlen in recs:
+            self.assertEqual(dnswire.RR_FIXED.unpack_from(self.resp, fixed), (rtype, rclass, ttl, rdlen))
+        with self.assertRaises(dnswire.DnsError):
+            dnswire.walk_records(self.resp[:-3])
+        big = bytearray(self.resp)
+        struct.pack_into("!H", big, 6, 600)
+        with self.assertRaises(dnswire.DnsError):
+            dnswire.walk_records(bytes(big))
+
+    def test_edns_info(self):
+        q = build_query("example.com")
+        self.assertEqual(dnswire.edns_info(q), (False, 512, False))
+        self.assertEqual(dnswire.edns_info(add_opt(q, do=False)), (True, 1232, False))
+        self.assertEqual(dnswire.edns_info(add_opt(q, do=True, payload=4096)), (True, 4096, True))
+        self.assertEqual(dnswire.edns_info(q[:-1] + b""), (False, 512, False))
+
+    def test_cache_key(self):
+        a = dnswire.cache_key(build_query("WwW.Example.COM", TYPE_AAAA))
+        self.assertEqual(a, ("www.example.com", TYPE_AAAA, 1, False))
+        self.assertEqual(dnswire.cache_key(build_query("www.example.com", TYPE_AAAA, qid=9)), a)
+        self.assertTrue(dnswire.cache_key(add_opt(build_query("example.com"), do=True))[3])
+        self.assertIsNone(dnswire.cache_key(self.resp))
+        self.assertIsNone(dnswire.cache_key(b"abc"))
+        status = bytearray(build_query("example.com"))
+        status[2] |= 0x28  # opcode 5
+        self.assertIsNone(dnswire.cache_key(bytes(status)))
+
+    def test_response_ttl_positive(self):
+        self.assertEqual(dnswire.response_ttl(self.resp), 120)
+
+    def test_response_ttl_huge_counts_zero(self):
+        msg = build_response("example.com", [("example.com", TYPE_A, 0x80000000, "192.0.2.1")])
+        self.assertEqual(dnswire.response_ttl(msg), 0)
+
+    def test_response_ttl_negative(self):
+        base = set_rcode(build_response("nx.example.com", []), 3)
+        self.assertEqual(dnswire.response_ttl(add_authority(base, dnswire.TYPE_SOA, 3600,
+                                                            soa_rdata(3600))), 300)
+        self.assertEqual(dnswire.response_ttl(add_authority(base, dnswire.TYPE_SOA, 30,
+                                                            soa_rdata(3600))), 30)
+        # min(TTL du SOA, champ MINIMUM)
+        self.assertEqual(dnswire.response_ttl(add_authority(base, dnswire.TYPE_SOA, 200,
+                                                            soa_rdata(45))), 45)
+        nodata = build_response("example.com", [], qtype=TYPE_AAAA)
+        self.assertEqual(dnswire.response_ttl(add_authority(nodata, dnswire.TYPE_SOA, 120,
+                                                            soa_rdata(900))), 120)
+
+    def test_response_ttl_negative_sans_soa(self):
+        # RFC 2308 : sans SOA, une réponse négative n'est pas cachable
+        base = set_rcode(build_response("nx.example.com", []), 3)
+        self.assertIsNone(dnswire.response_ttl(base))
+        self.assertIsNone(dnswire.response_ttl(build_response("example.com", [], qtype=TYPE_AAAA)))
+        # SOA illisible (rdata trop court) : ignoré
+        self.assertIsNone(dnswire.response_ttl(add_authority(base, dnswire.TYPE_SOA, 30)))
+
+    def test_cache_key_rd_cd(self):
+        q = bytearray(build_query("www.example.com"))
+        self.assertIsNotNone(dnswire.cache_key(bytes(q)))
+        no_rd = bytearray(q)
+        no_rd[2] &= 0xFE                       # RD=0
+        self.assertIsNone(dnswire.cache_key(bytes(no_rd)))
+        cd = bytearray(q)
+        cd[3] |= 0x10                          # CD=1
+        self.assertIsNone(dnswire.cache_key(bytes(cd)))
+
+    def test_cache_key_minuscules_ascii(self):
+        upper = build_query("www.example.com")
+        a = dnswire.cache_key(upper.replace(b"www", b"\xc0\xc0x"))
+        b = dnswire.cache_key(upper.replace(b"www", b"\xe0\xe0x"))
+        self.assertIsNotNone(a)
+        self.assertNotEqual(a, b)              # octets > 0x7F non repliés
+        self.assertEqual(dnswire.cache_key(build_query("WWW.EXAMPLE.COM")),
+                         dnswire.cache_key(build_query("www.example.com")))
+
+    def test_question_tuple(self):
+        resp = build_response("WwW.Example.com", [], qtype=TYPE_AAAA)
+        self.assertEqual(dnswire.question_tuple(resp), ("www.example.com", TYPE_AAAA, 1))
+        self.assertIsNone(dnswire.question_tuple(b"abc"))
+
+    def test_response_ttl_refused(self):
+        self.assertIsNone(dnswire.response_ttl(build_response("a.example.com", [], tc=True)))
+        self.assertIsNone(dnswire.response_ttl(set_rcode(build_response("a.example.com", []), 2)))
+        self.assertIsNone(dnswire.response_ttl(build_query("a.example.com")))
+        self.assertIsNone(dnswire.response_ttl(b"\x00\x01"))
+
+    def test_rewrite_basic(self):
+        query = add_opt(build_query("WWW.example.COM", qid=0xBEEF))
+        out = dnswire.rewrite_for_client(query, self.resp, 50)
+        self.assertEqual(out[:2], b"\xbe\xef")
+        self.assertEqual(dnswire.raw_question(out), dnswire.raw_question(query))
+        self.assertIn(b"\x03WWW", out)
+        recs = dnswire.walk_records(out)
+        self.assertEqual([r[5] for r in recs], [250, 70, 0])  # l'OPT garde son TTL
+        self.assertEqual(len(out), len(self.resp))
+
+    def test_rewrite_ttl_floor(self):
+        query = add_opt(build_query("www.example.com"))
+        out = dnswire.rewrite_for_client(query, self.resp, 1000)
+        self.assertEqual([r[5] for r in dnswire.walk_records(out)], [0, 0, 0])
+
+    def test_rewrite_strips_opt(self):
+        query = build_query("www.example.com", qid=7)
+        out = dnswire.rewrite_for_client(query, self.resp, 10)
+        self.assertEqual(len(out), len(self.resp) - 11)
+        self.assertEqual(struct.unpack_from("!HHHHHH", out, 0)[5], 0)
+        resp = dnswire.parse_response(out)
+        orig = dnswire.parse_response(self.resp)
+        self.assertEqual(resp.id, 7)
+        self.assertEqual([r.data for r in resp.answers], [r.data for r in orig.answers])
+        self.assertEqual([r.ttl for r in resp.answers], [290, 110])
+
+    def test_rewrite_keeps_opt_if_not_last(self):
+        resp = add_authority(self.resp, 2, 100)  # NS après l'OPT : l'OPT n'est plus dernier
+        query = build_query("www.example.com")
+        out = dnswire.rewrite_for_client(query, resp, 0)
+        self.assertEqual(struct.unpack_from("!H", out, 10)[0], 1)
+        self.assertEqual(len(out), len(resp))
+
+    def test_rewrite_never_raises(self):
+        query = build_query("www.example.com", qid=0x0102)
+        self.assertEqual(dnswire.rewrite_for_client(query, self.resp[:-5], 0)[:2], b"\x01\x02")
+        self.assertEqual(dnswire.rewrite_for_client(b"", b"\x00" * 12, 0), b"\x00" * 10)
+
+
 if __name__ == "__main__":
     unittest.main()

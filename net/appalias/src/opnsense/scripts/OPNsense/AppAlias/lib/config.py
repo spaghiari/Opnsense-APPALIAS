@@ -37,7 +37,10 @@ comme dans le modèle MVC) :
               "loglevel": "info", "shared_platforms_extra": ["name", ...],
               "unbound_autoforward": false,
               "proactive_enabled": true, "proactive_interval_min": 300,
-              "proactive_interval_max": 3600, "proactive_prefixes": ["www"]},
+              "proactive_interval_max": 3600, "proactive_prefixes": ["www"],
+              "cache_enabled": true, "client_networks": ["cidr", ...],
+              "client_rate_limit": 100, "pf_backend": "auto|pfctl|ioctl",
+              "asn_enabled": true},
   "apps": [{"uuid": "...", "enabled": true, "name": "X", "description": "...",
             "origin": "manual", "domains": [...], "asns": [...],
             "networks": [...], "families": "both", "catalog_refs": [...],
@@ -56,6 +59,18 @@ Résolution proactive (activée par défaut, absente des anciens config.json) :
 proactive_interval_min <= proactive_interval_max, ce dernier restant strictement
 sous ttl_min + ttl_margin (sinon les entrées expireraient entre deux passes) ;
 proactive_prefixes ne garde que des labels DNS valides, sans doublon (8 au plus).
+
+Relais ouvrable au LAN (0.9, clés absentes des anciens config.json) :
+listen_address accepte une adresse, une liste ou un texte « a,b » (export PHP) ;
+Config.listen_addresses porte la liste complète (sans doublon, 127.0.0.1 si
+vide) et Config.listen_address l'adresse de transfert d'Unbound (la première
+adresse de bouclage, sinon la première). cache_enabled (défaut vrai) active le
+cache de réponses ; client_networks liste les réseaux clients autorisés (vide =
+défauts de lib/clients.py) ; client_rate_limit est le débit par client en
+requêtes par seconde (0 = illimité, 100 par défaut, 100000 au plus) ;
+pf_backend choisit le pilote pf (auto, pfctl ou ioctl, « auto » si inconnu) ;
+asn_enabled (défaut vrai) active les sources ASN. La détection de boucle
+écoute/amont reste à lib/unboundfwd.py (plan), pas ici.
 """
 
 import ipaddress
@@ -81,6 +96,8 @@ PROACTIVE_INTERVAL_MIN = (300, 60, 86400)
 PROACTIVE_INTERVAL_MAX = (3600, 300, 86400)
 PROACTIVE_MAX_PREFIXES = 8
 PROACTIVE_DEFAULT_PREFIXES = ["www"]
+PF_BACKENDS = ("auto", "pfctl", "ioctl")
+CLIENT_RATE_LIMIT = (100, 0, 100000)
 LABEL_RE = re.compile(r"^[a-z0-9_]([a-z0-9_-]{0,61}[a-z0-9_])?$")
 
 # Nom TLS : nom d'hôte (labels LDH) ou adresse IP.
@@ -317,6 +334,31 @@ def parse_networks(values, what):
     return nets
 
 
+def parse_listen_addresses(value):
+    """Adresses d'écoute (texte « a,b », liste ou adresse seule) -> liste canonique sans doublon.
+
+    Vide : ["127.0.0.1"]. « any » et toute adresse invalide lèvent ConfigError.
+    """
+    out = []
+    for item in as_list(value):
+        reject_wildcard(item, "listen_address")
+        try:
+            addr = str(ipaddress.ip_address(item))
+        except ValueError as exc:
+            raise ConfigError("listen_address invalide : %s" % item) from exc
+        if addr not in out:
+            out.append(addr)
+    return out or ["127.0.0.1"]
+
+
+def unbound_address(addresses):
+    """Adresse de transfert d'Unbound : première adresse de bouclage, sinon la première."""
+    for addr in addresses:
+        if ipaddress.ip_address(addr).is_loopback:
+            return addr
+    return addresses[0]
+
+
 @dataclass
 class App:
     uuid: str
@@ -367,6 +409,17 @@ class Config:
     proactive_interval_min: int = PROACTIVE_INTERVAL_MIN[0]
     proactive_interval_max: int = PROACTIVE_INTERVAL_MAX[0]
     proactive_prefixes: list = field(default_factory=lambda: list(PROACTIVE_DEFAULT_PREFIXES))
+    listen_addresses: list = field(default_factory=list)   # toutes les adresses d'écoute
+    cache_enabled: bool = True
+    client_networks: list = field(default_factory=list)    # vide = défauts de lib/clients.py
+    client_rate_limit: int = CLIENT_RATE_LIMIT[0]          # requêtes/s par client, 0 = illimité
+    pf_backend: str = "auto"
+    asn_enabled: bool = True
+
+    def __post_init__(self):
+        # Construction directe (tests) : liste cohérente avec listen_address.
+        if not self.listen_addresses:
+            self.listen_addresses = [self.listen_address]
 
     def excluded(self, ip):
         return any(ip.version == n.version and ip in n for n in self.exclude_networks)
@@ -386,12 +439,8 @@ def from_dict(data):
     if not isinstance(gen, dict):
         raise ConfigError("config.json : section general invalide")
 
-    listen_address = str(gen.get("listen_address") or "127.0.0.1").strip()
-    reject_wildcard(listen_address, "listen_address")
-    try:
-        listen_address = str(ipaddress.ip_address(listen_address))
-    except ValueError as exc:
-        raise ConfigError("listen_address invalide : %s" % listen_address) from exc
+    listen_addresses = parse_listen_addresses(gen.get("listen_address"))
+    listen_address = unbound_address(listen_addresses)
     listen_port = as_int(gen.get("listen_port"), 53535)
     if not 1 <= listen_port <= 65535:
         raise ConfigError("listen_port hors plage (1-65535) : %s" % gen.get("listen_port"))
@@ -421,6 +470,11 @@ def from_dict(data):
     # service désactivé : amont vide toléré (valeur par défaut du modèle)
     for item in as_list(gen.get("upstream_fallback")):
         upstreams.append(parse_upstream(item, default_port, tls_name, protocol))
+
+    pf_backend = str(gen.get("pf_backend") or "auto").strip().lower()
+    if pf_backend not in PF_BACKENDS:
+        log.warning("pf_backend inconnu « %s » : « auto » employé", gen.get("pf_backend"))
+        pf_backend = "auto"
 
     prefix = str(gen.get("alias_prefix") if gen.get("alias_prefix") is not None else "APP_")
     loglevel = str(gen.get("loglevel") or "info").strip().lower()
@@ -488,6 +542,12 @@ def from_dict(data):
         proactive_interval_min=proactive_min,
         proactive_interval_max=proactive_max,
         proactive_prefixes=parse_prefixes(gen.get("proactive_prefixes")),
+        listen_addresses=listen_addresses,
+        cache_enabled=as_bool(gen.get("cache_enabled"), True),
+        client_networks=parse_networks(gen.get("client_networks"), "client_networks"),
+        client_rate_limit=as_int(gen.get("client_rate_limit"), *CLIENT_RATE_LIMIT),
+        pf_backend=pf_backend,
+        asn_enabled=as_bool(gen.get("asn_enabled"), True),
     )
 
 

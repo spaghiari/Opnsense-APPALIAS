@@ -56,6 +56,57 @@ class WindowTests(unittest.TestCase):
         self.assertEqual(d["window"], 256)
 
 
+class RelayCountersTests(unittest.TestCase):
+    def test_defaults_in_to_dict(self):
+        out = metrics.Metrics().to_dict()
+        self.assertEqual(out["cache"], {"hits": 0, "misses": 0, "entries": 0})
+        self.assertEqual(out["clients"], {"rate_limited": 0, "refused": 0})
+        self.assertNotIn("asn", out)
+
+    def test_cache(self):
+        m = metrics.Metrics()
+        m.add_cache(True)
+        m.add_cache(True)
+        m.add_cache(False)
+        self.assertEqual((m.cache["hits"], m.cache["misses"]), (2, 1))
+        self.assertEqual(m.version, 3)
+        m.set_cache_entries(42)
+        self.assertEqual(m.to_dict()["cache"], {"hits": 2, "misses": 1, "entries": 42})
+        self.assertEqual(m.version, 4)
+        m.set_cache_entries(42)            # inchangé : pas d'écriture inutile
+        self.assertEqual(m.version, 4)
+
+    def test_clients(self):
+        m = metrics.Metrics()
+        m.add_client("rate_limited")
+        m.add_client("refused", 3)
+        m.add_client("inconnu")
+        m.add_client("refused", 0)
+        self.assertEqual(m.to_dict()["clients"], {"rate_limited": 1, "refused": 3})
+        self.assertEqual(m.version, 2)
+
+    def test_asn(self):
+        m = metrics.Metrics()
+        m.set_asn(0, 0)
+        self.assertEqual(m.version, 0)
+        self.assertNotIn("asn", m.to_dict())
+        m.set_asn(2, 150)
+        self.assertEqual(m.to_dict()["asn"], {"tables": 2, "prefixes": 150})
+        self.assertEqual(m.version, 1)
+        m.set_asn(2, 150)
+        self.assertEqual(m.version, 1)
+        m.set_asn(0, 0)                    # retombe à zéro : section masquée
+        self.assertNotIn("asn", m.to_dict())
+
+    def test_to_dict_copies(self):
+        m = metrics.Metrics()
+        out = m.to_dict()
+        out["cache"]["hits"] = 99
+        out["clients"]["refused"] = 99
+        self.assertEqual(m.cache["hits"], 0)
+        self.assertEqual(m.clients["refused"], 0)
+
+
 class FileTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

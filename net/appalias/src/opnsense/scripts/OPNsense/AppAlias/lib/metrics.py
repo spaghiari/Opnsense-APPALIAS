@@ -43,6 +43,13 @@ configuration a changé pendant la sonde) + rejeux TCP intermédiaires (la
 requête UDP tronquée est comptée dans sent sans résultat propre). fail compte
 aussi les sondes échouées avant tout envoi (nom invalide, erreur interne) : dans
 ce cas fail dépasse sent d'autant.
+
+Relais LAN (0.9) : « cache » (hits, misses, entries : réponses servies par le
+cache, requêtes transmises à l'amont, entrées présentes) et « clients »
+(rate_limited : requêtes écartées par la limite de débit ; refused : requêtes
+refusées car hors des réseaux clients) sont toujours présents ; « asn »
+(tables, prefixes : tables remplies par les sources ASN et préfixes chargés)
+n'apparaît que lorsque tables > 0.
 """
 
 import json
@@ -54,6 +61,7 @@ from collections import deque
 WINDOW = 256
 FILENAME = "metrics.json"
 PROACTIVE_COUNTERS = ("sent", "ok", "empty", "fail", "added")
+CLIENT_COUNTERS = ("rate_limited", "refused")
 
 
 class Window:
@@ -81,6 +89,9 @@ class Metrics:
         self.upstreams = {}      # « host@port » -> Window
         self.pf = Window(size)
         self.proactive = dict.fromkeys(PROACTIVE_COUNTERS, 0)
+        self.cache = {"hits": 0, "misses": 0, "entries": 0}
+        self.clients = dict.fromkeys(CLIENT_COUNTERS, 0)
+        self.asn = {"tables": 0, "prefixes": 0}
         self.version = 0         # incrémenté à chaque mesure (écriture si changé)
 
     def add_upstream(self, key, ms):
@@ -100,6 +111,29 @@ class Metrics:
             self.proactive[counter] += n
             self.version += 1
 
+    def add_cache(self, hit):
+        """Compte une réponse servie par le cache (hit) ou transmise à l'amont (miss)."""
+        self.cache["hits" if hit else "misses"] += 1
+        self.version += 1
+
+    def set_cache_entries(self, n):
+        n = max(0, int(n))
+        if self.cache["entries"] != n:
+            self.cache["entries"] = n
+            self.version += 1
+
+    def add_client(self, counter, n=1):
+        """Incrémente un compteur client (CLIENT_COUNTERS)."""
+        if counter in self.clients and n > 0:
+            self.clients[counter] += n
+            self.version += 1
+
+    def set_asn(self, tables, prefixes):
+        tables, prefixes = max(0, int(tables)), max(0, int(prefixes))
+        if self.asn["tables"] != tables or self.asn["prefixes"] != prefixes:
+            self.asn["tables"], self.asn["prefixes"] = tables, prefixes
+            self.version += 1
+
     def retain(self, keys):
         """Oublie les amonts qui ne sont plus configurés."""
         for key in list(self.upstreams):
@@ -110,7 +144,11 @@ class Metrics:
     def to_dict(self):
         out = {"window": self.size,
                "upstreams": {k: w.summary() for k, w in sorted(self.upstreams.items())},
-               "pf": self.pf.summary()}
+               "pf": self.pf.summary(),
+               "cache": dict(self.cache),
+               "clients": dict(self.clients)}
+        if self.asn["tables"] > 0:
+            out["asn"] = dict(self.asn)
         if self.proactive["sent"]:
             out["proactive"] = dict(self.proactive)
         return out

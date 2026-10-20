@@ -21,6 +21,17 @@ WWW: https://github.com/spaghiari/Opnsense-APPALIAS
 Plugin Changelog
 ================
 
+0.9
+
+* Relay usable as the DNS server of the LAN, without Unbound or Dnsmasq on
+  the firewall: several listen addresses, response cache (bounded by
+  minimum TTL + TTL margin), allowed client networks (default: loopback and
+  private networks, other sources dropped), rate limit per client.
+* pf tables written by ioctl on /dev/pf (no process per answer), with
+  automatic fallback to the pfctl command; backend shown in Settings.
+* ASN sources: the prefixes announced in BGP by the ASNs of an application
+  (RIPEstat, https) are added to its alias, refreshed daily and after Apply.
+
 0.8
 
 * Discovery removed (tab, API, settings, relay engine): it proposed names
