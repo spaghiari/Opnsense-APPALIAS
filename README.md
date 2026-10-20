@@ -92,30 +92,72 @@ Installation par copie, publication et maintenance : voir
    domaines, réseaux CIDR éventuels), puis **Apply**. L'alias `APP_<NOM>`
    apparaît dans *Pare-feu > Alias*.
 
-4. **Résolution proactive** (activée par défaut, y compris après une mise à
-   jour vers 0.7) : en complément du relais, le démon résout lui-même, à
-   intervalle régulier, les noms des applications activées, pour que leurs
-   alias soient déjà remplis avant que le premier client ne les demande.
-   - Elle sonde les règles `full:x` (le nom `x`) et `domain:x` (`x` et
-     `www.x`, selon *Proactive prefixes*), en A et en AAAA selon les
-     familles de l'application. Les réponses passent par le même chemin
-     que celles du relais (exclusions, plafonds, expiration des entrées).
-   - Réglages (*Settings*) : *Proactive resolution* (activation générale),
-     intervalle minimal (300 s par défaut) et maximal (3600 s), préfixes
-     (`www` par défaut, 8 au plus). L'intervalle maximal reste sous
-     `ttl_min + ttl_margin`, sinon les entrées expireraient entre deux
-     passes (valeur ramenée ou fonction désactivée, avec un
+4. **Résolution proactive et pré-remplissage** (activés par défaut) : en
+   complément du relais, le démon résout lui-même les noms des applications
+   activées, pour que leurs alias soient remplis avant que le premier client
+   ne les demande. Jusqu'à la 0.9, seuls l'apex et `www.` étaient sondés ;
+   depuis la 0.10, cinq mécanismes remplissent l'alias dès l'ajout d'une
+   application :
+   1. **Passe immédiate** : après l'ajout (ou l'Apply), les nouvelles cibles
+      sont dues tout de suite, sans attendre l'intervalle de 5 minutes ni
+      être étalées (seul le débit de 10 sondes par seconde s'applique). Au
+      démarrage du démon, la boucle attend 10 secondes (écoute ouverte,
+      amorçage Unbound lancé), puis les cibles sont étalées sur l'intervalle
+      minimal pour éviter une rafale ; les sondes joker passent toujours en
+      tête.
+   2. **Découverte profonde** : un dictionnaire embarqué d'environ 90 labels
+      de services (`api`, `chat`, `cdn`, `storage`, `voip`, `sfu`, `static`,
+      `media`...) est sondé devant chaque règle `domain:`, en plus du domaine
+      lui-même et des préfixes (*Proactive prefixes*). Les domaines à joker
+      DNS sont détectés (un nom aléatoire qui répond, en A ou en AAAA selon
+      les familles de l'application = joker) : le dictionnaire est alors
+      ignoré pour ce domaine et les noms vus en dessous aussi ; le verdict
+      est retenu 7 jours. Un domaine qui répond NXDOMAIN n'est pas énuméré
+      tant qu'il reste inexistant (revérifié au rythme du backoff). Les
+      règles `full:x` ne sondent que `x`.
+   3. **Indices embarqués** : le fichier `data/probe_hints.txt` liste des
+      endpoints connus d'applications populaires (Signal, WhatsApp, Telegram,
+      Discord, Twitch, Spotify, Netflix). Ils sont toujours filtrés par les
+      règles de l'application : un indice hors règles est ignoré.
+   4. **Mémoire des noms vus** : chaque nom observé par le relais, par les
+      sondes ou par l'amorçage est retenu (1024 par application, oubliés
+      après 30 jours sans être vus) ; les 256 plus récents de chaque
+      application sont re-sondés, après les nouvelles cibles de base et au
+      rythme de l'intervalle maximal. L'alias est donc pré-rempli après un
+      redémarrage ou une expiration.
+   5. **Amorçage depuis le cache d'Unbound** : à l'Apply, au démarrage et
+      toutes les heures (un seul amorçage à la fois), `unbound-control
+      dump_cache` est lu et tout nom déjà résolu par le pare-feu qui
+      correspond à une application entre aussitôt dans son alias, avec ses
+      adresses (nécessite Unbound). Les plateformes partagées et les noms
+      sous un joker DNS sont écartés.
+   - Les réponses passent par le même chemin que celles du relais
+     (exclusions, plafonds, expiration des entrées), en A et en AAAA selon
+     les familles de l'application.
+   - Réglages (*Settings*) : *Proactive resolution* (activation générale,
+     mécanismes 1 à 4), *Deep discovery* (dictionnaire du mécanisme 2
+     seulement : indices et noms vus restent actifs tant que la résolution
+     proactive l'est), *Seed from Unbound cache* (mécanisme 5), intervalle minimal (300 s par défaut) et maximal
+     (3600 s), préfixes (`www` par défaut, 8 au plus). L'intervalle maximal
+     reste sous `ttl_min + ttl_margin`, sinon les entrées expireraient
+     entre deux passes (valeur ramenée ou fonction désactivée, avec un
      avertissement). Chaque nom est ensuite replanifié selon le TTL de la
      réponse, borné par ces intervalles, avec un léger décalage aléatoire ;
      les échecs et les réponses vides reculent progressivement.
    - Par application : case *Proactive resolution* (cochée par défaut,
      pastille dans la grille). Une application désactivée n'est pas sondée.
-   - Charge DNS sortante : environ N noms × 2 types (A et AAAA) par
-     intervalle, N étant le nombre de noms sondés (256 par application et
-     5000 au total au plus), étalés dans le temps, 2 sondes simultanées au
-     plus.
+     La colonne *Names* de la grille indique les noms sondés et les noms vus.
+   - Charge DNS sortante : après un changement (ajout ou modification d'une
+     application), jusqu'à 90 labels par domaine sont sondés, en A et en
+     AAAA ; les NXDOMAIN reculent ensuite sur 24 h, si bien que le régime
+     établi reste proche de N noms × 2 types par intervalle. Plafonds :
+     2048 noms par application et 20000 au total, 10 sondes par seconde et
+     4 sondes simultanées au plus.
+   - Limites : un sous-domaine hors dictionnaire, hors indices et jamais vu
+     reste découvert à son premier usage, par le relais. Les noms
+     dynamiques (`rN---sn-xxx.googlevideo.com`) ne sont pas énumérables.
    - Compteurs dans `metrics.json` : envoyées, réussies, vides, échouées,
-     adresses ajoutées.
+     adresses ajoutées, adresses amorcées depuis Unbound (`seeded`).
 
 ### Sans Unbound ni Dnsmasq : le relais comme DNS du LAN
 
@@ -328,6 +370,10 @@ en Block : un paquet bloqué est ignoré sans réponse, et le navigateur attend
 un délai d'expiration avant de basculer en IPv4 ; avec Reject, le refus est
 immédiat et la bascule aussi.
 
+Le relais ajoute l'adresse à l'alias **avant** de rendre la réponse DNS au
+client : le routage par politique fonctionne donc dès la première connexion,
+à condition que les clients résolvent par Unbound (ou par le relais).
+
 ## Performances
 
 - Le relais journalise, pour chaque réponse qui ajoute des adresses, le
@@ -370,14 +416,18 @@ immédiat et la bascule aussi.
   jamais l'exposer sur le WAN.
 - **Résolution proactive** : elle ne couvre ni `regexp:` ni `keyword:`, ni les
   noms dynamiques (par exemple `rN---sn-xxx.googlevideo.com`), qui restent
-  couverts par le relais, ni les plateformes partagées (jamais sondées). Les
-  IP de CDN dépendent de l'emplacement du pare-feu : la sonde peut obtenir
-  des adresses différentes de celles que vos clients reçoivent (biais
-  géographique). Elle ne remplace pas le relais, qui reste la source
-  principale pour les adresses réellement servies aux clients. Vider les
-  caches (Unbound ou clients) ne change rien à son fonctionnement : le démon
-  interroge directement l'amont.
-- **État actuel (0.9)** : relais ouvrable au LAN (cache, réseaux clients,
+  couverts par le relais, ni les plateformes partagées (jamais sondées). Un
+  sous-domaine absent du dictionnaire, des indices, de la mémoire des noms
+  et du cache d'Unbound n'est découvert qu'au premier usage. Les domaines à
+  joker DNS ne sont pas énumérés. Les IP de CDN dépendent de l'emplacement
+  du pare-feu : la sonde peut obtenir des adresses différentes de celles que
+  vos clients reçoivent (biais géographique). Elle ne remplace pas le
+  relais, qui reste la source principale pour les adresses réellement
+  servies aux clients. Vider les caches (Unbound ou clients) ne change rien
+  à son fonctionnement : le démon interroge directement l'amont.
+- **État actuel (0.10)** : pré-remplissage intelligent des alias (passe
+  immédiate, découverte profonde, indices, noms vus, amorçage depuis le cache
+  d'Unbound), relais ouvrable au LAN (cache, réseaux clients,
   limite par client), backend pf par ioctl, sources ASN (RIPEstat), catalogue v2fly (vérifié chaque heure, option)
   suivi automatiquement par les applications importées, résolution
   proactive des noms `domain:` / `full:`, DNS over TLS vers

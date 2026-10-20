@@ -95,5 +95,25 @@ class ProactiveConfigTests(unittest.TestCase):
                          (300, 3600, ["www"]))
 
 
+class DiscoveryConfigTests(unittest.TestCase):
+    """0.10 : découverte profonde et amorçage Unbound."""
+
+    def test_defauts_vrais(self):
+        for cfg in (gen(), cfgmod.from_dict({})):
+            self.assertTrue(cfg.proactive_deep)
+            self.assertTrue(cfg.unbound_cache_seed)
+
+    def test_valeurs(self):
+        cfg = gen(proactive_deep="0", unbound_cache_seed="0")
+        self.assertFalse(cfg.proactive_deep)
+        self.assertFalse(cfg.unbound_cache_seed)
+        cfg = gen(proactive_deep="1", unbound_cache_seed=True)
+        self.assertTrue(cfg.proactive_deep)
+        self.assertTrue(cfg.unbound_cache_seed)
+        cfg = gen(proactive_deep="", unbound_cache_seed=None)
+        self.assertTrue(cfg.proactive_deep)
+        self.assertTrue(cfg.unbound_cache_seed)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -38,6 +38,7 @@ comme dans le modèle MVC) :
               "unbound_autoforward": false,
               "proactive_enabled": true, "proactive_interval_min": 300,
               "proactive_interval_max": 3600, "proactive_prefixes": ["www"],
+              "proactive_deep": true, "unbound_cache_seed": true,
               "cache_enabled": true, "client_networks": ["cidr", ...],
               "client_rate_limit": 100, "pf_backend": "auto|pfctl|ioctl",
               "asn_enabled": true},
@@ -59,6 +60,12 @@ Résolution proactive (activée par défaut, absente des anciens config.json) :
 proactive_interval_min <= proactive_interval_max, ce dernier restant strictement
 sous ttl_min + ttl_margin (sinon les entrées expireraient entre deux passes) ;
 proactive_prefixes ne garde que des labels DNS valides, sans doublon (8 au plus).
+
+Découverte (0.10, clés absentes des anciens config.json, vraies par défaut) :
+proactive_deep ajoute aux sondes de chaque « domain:x » les labels courants
+du dictionnaire (data/probe_labels.txt), hors jokers DNS détectés ;
+unbound_cache_seed amorce les tables depuis le cache d'Unbound (au démarrage,
+après chaque rechargement, puis toutes les heures) quand Unbound est activé.
 
 Relais ouvrable au LAN (0.9, clés absentes des anciens config.json) :
 listen_address accepte une adresse, une liste ou un texte « a,b » (export PHP) ;
@@ -415,6 +422,8 @@ class Config:
     client_rate_limit: int = CLIENT_RATE_LIMIT[0]          # requêtes/s par client, 0 = illimité
     pf_backend: str = "auto"
     asn_enabled: bool = True
+    proactive_deep: bool = True          # dictionnaire de labels (découverte profonde)
+    unbound_cache_seed: bool = True      # amorçage depuis le cache d'Unbound
 
     def __post_init__(self):
         # Construction directe (tests) : liste cohérente avec listen_address.
@@ -548,6 +557,8 @@ def from_dict(data):
         client_rate_limit=as_int(gen.get("client_rate_limit"), *CLIENT_RATE_LIMIT),
         pf_backend=pf_backend,
         asn_enabled=as_bool(gen.get("asn_enabled"), True),
+        proactive_deep=as_bool(gen.get("proactive_deep"), True),
+        unbound_cache_seed=as_bool(gen.get("unbound_cache_seed"), True),
     )
 
 

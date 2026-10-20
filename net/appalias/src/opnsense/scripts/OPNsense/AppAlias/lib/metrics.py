@@ -50,6 +50,11 @@ cache, requêtes transmises à l'amont, entrées présentes) et « clients »
 refusées car hors des réseaux clients) sont toujours présents ; « asn »
 (tables, prefixes : tables remplies par les sources ASN et préfixes chargés)
 n'apparaît que lorsque tables > 0.
+
+Découverte (0.10) : « discovery » (targets : noms distincts planifiés par la
+résolution proactive, sondes joker exclues ; seeded : adresses ajoutées aux
+tables par l'amorçage depuis le cache d'Unbound, depuis le démarrage)
+n'apparaît que lorsque l'un des deux est non nul.
 """
 
 import json
@@ -92,6 +97,7 @@ class Metrics:
         self.cache = {"hits": 0, "misses": 0, "entries": 0}
         self.clients = dict.fromkeys(CLIENT_COUNTERS, 0)
         self.asn = {"tables": 0, "prefixes": 0}
+        self.discovery = {"targets": 0, "seeded": 0}
         self.version = 0         # incrémenté à chaque mesure (écriture si changé)
 
     def add_upstream(self, key, ms):
@@ -134,6 +140,21 @@ class Metrics:
             self.asn["tables"], self.asn["prefixes"] = tables, prefixes
             self.version += 1
 
+    def add_seed(self, n=1):
+        """Compte des adresses ajoutées par l'amorçage (cache d'Unbound)."""
+        if n > 0:
+            self.discovery["seeded"] += int(n)
+            self.version += 1
+
+    def set_proactive_targets(self, n):
+        """Nombre de noms distincts planifiés par la résolution proactive.
+
+        Valeur d'état, pas une mesure : ne déclenche pas d'écriture à elle
+        seule (version inchangée), elle part avec la mesure suivante ou
+        l'écriture forcée du démarrage.
+        """
+        self.discovery["targets"] = max(0, int(n))
+
     def retain(self, keys):
         """Oublie les amonts qui ne sont plus configurés."""
         for key in list(self.upstreams):
@@ -149,6 +170,8 @@ class Metrics:
                "clients": dict(self.clients)}
         if self.asn["tables"] > 0:
             out["asn"] = dict(self.asn)
+        if self.discovery["targets"] or self.discovery["seeded"]:
+            out["discovery"] = dict(self.discovery)
         if self.proactive["sent"]:
             out["proactive"] = dict(self.proactive)
         return out

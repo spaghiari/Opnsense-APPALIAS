@@ -1,12 +1,14 @@
 import json
 import os
 import tempfile
+import time
 import unittest
 
 from appalias_testutil import FakePf
 
 import status
 from lib import metrics
+from lib import proactive
 from lib.pftable import PfTable
 from lib.state import State
 
@@ -168,6 +170,68 @@ class StatusWarningsAsnTests(unittest.TestCase):
         self.assertEqual(out["asn"], {"enabled": True, "asns": 0, "prefixes": 0, "fetched": None,
                                       "errors": {}})
         self.assertEqual(out["apps"]["u1"]["asn_prefixes"], 0)
+
+
+class StatusDiscoveryTests(unittest.TestCase):
+    """0.10 : probe_names, seen_names et discovery."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.config = os.path.join(self.tmp.name, "config.json")
+        self.state = os.path.join(self.tmp.name, "state.json")
+        self.pf = PfTable(pfctl=["pfctl"], runner=FakePf())
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def write(self, general=None, wildcard=False):
+        gen = {"enabled": False, "upstream_address": "192.0.2.53"}
+        gen.update(general or {})
+        with open(self.config, "w", encoding="utf-8") as fh:
+            json.dump({"general": gen, "apps": [
+                {"uuid": "u1", "name": "SIG", "domains": ["domain:signal.org"],
+                 "catalog_refs": ["signal"]},
+                {"uuid": "u2", "name": "OFF", "domains": ["domain:example.org"],
+                 "enabled": False}]}, fh)
+        st = State()
+        now = time.time()
+        st.see("APP_SIG", "chat.signal.org", now)
+        st.see("APP_SIG", "sous.domaine.signal.org", now)
+        if wildcard:
+            st.set_wildcard("signal.org", now)
+        st.set_wildcard("vieux.example", now - 8 * 86400)
+        st.save(self.state)
+
+    def test_avec_dictionnaire(self):
+        self.write()
+        out = status.status(self.config, self.state, self.pf)
+        labels = proactive.load_labels()
+        hints = [n for n in proactive.load_hints()["signal"] if n.endswith(".signal.org")]
+        expected = {"signal.org", "www.signal.org", "sous.domaine.signal.org"}
+        expected |= set(hints) | {lab + ".signal.org" for lab in labels}
+        app = out["apps"]["u1"]
+        self.assertEqual(app["probe_names"], len(expected))
+        self.assertEqual(app["seen_names"], 2)
+        self.assertEqual(out["apps"]["u2"]["probe_names"], 0)
+        self.assertEqual(out["apps"]["u2"]["seen_names"], 0)
+        self.assertEqual(out["discovery"], {"deep": True, "labels": len(labels),
+                                            "targets": len(expected), "wildcards": []})
+
+    def test_joker_et_sans_dictionnaire(self):
+        self.write(wildcard=True)
+        out = status.status(self.config, self.state, self.pf)
+        self.assertEqual(out["discovery"]["wildcards"], ["signal.org"])
+        with_wild = out["apps"]["u1"]["probe_names"]
+        self.write(general={"proactive_deep": "0"})
+        out = status.status(self.config, self.state, self.pf)
+        self.assertFalse(out["discovery"]["deep"])
+        # sans joker, le nom vu « sous.domaine.signal.org » redevient une cible
+        self.assertEqual(out["apps"]["u1"]["probe_names"], with_wild + 1)
+        self.write(general={"proactive_enabled": "0"})
+        out = status.status(self.config, self.state, self.pf)
+        self.assertEqual(out["apps"]["u1"]["probe_names"], 0)
+        self.assertEqual(out["discovery"]["targets"], 0)
+        self.assertEqual(out["apps"]["u1"]["seen_names"], 2)
 
 
 if __name__ == "__main__":

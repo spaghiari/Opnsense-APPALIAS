@@ -21,6 +21,21 @@ WWW: https://github.com/spaghiari/Opnsense-APPALIAS
 Plugin Changelog
 ================
 
+0.10
+
+* Smart alias pre-filling: the first proactive pass runs right after an
+  application is added (no 5 minute wait).
+* Deep discovery: a built-in dictionary of about 90 service labels (api,
+  chat, cdn, storage, voip...) is probed in front of each domain: rule,
+  with DNS wildcard detection. New option "Deep discovery".
+* Built-in hints for popular applications (Signal, WhatsApp, Telegram,
+  Discord, Twitch, Spotify, Netflix), filtered by the application rules.
+* Names seen by the relay are remembered (1024 per application, 30 days)
+  and probed again at each pass.
+* Seeding from the Unbound cache (unbound-control dump_cache) at startup,
+  after Apply and every hour. New option "Seed from Unbound cache".
+* Status page: "Names" column, discovery and seeding summary.
+
 0.9
 
 * Relay usable as the DNS server of the LAN, without Unbound or Dnsmasq on

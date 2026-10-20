@@ -51,6 +51,14 @@ par ASN tronquées à MAX_TEXT caractères) ; par application, « asn_prefixes �
 est le nombre de préfixes retenus pour ses ASN (0 si les sources ASN sont
 désactivées).
 
+« discovery » (0.10) : découverte des noms à sonder (deep : proactive_deep,
+labels : taille du dictionnaire, targets : noms distincts planifiés, wildcards :
+domaines détectés comme jokers DNS, verdict de moins de 7 jours) ; par
+application, « probe_names » est le nombre de noms qu'elle fait sonder
+(estimation : dictionnaire compté pour tout domaine non joker, 0 si la
+résolution proactive est désactivée) et « seen_names » le nombre de noms vus
+retenus dans l'état.
+
 « --show <table> » : contenu d'une table gérée (action « appalias table_show »).
 Le nom est validé et doit appartenir à une application configurée.
 """
@@ -58,20 +66,31 @@ Le nom est validé et doit appartenir à une application configurée.
 import argparse
 import ipaddress
 import json
+import logging
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from lib import asn  # noqa: E402
 from lib import config as cfgmod  # noqa: E402
 from lib import metrics  # noqa: E402
+from lib import proactive  # noqa: E402
+from lib import shared  # noqa: E402
+from lib.matcher import Matcher  # noqa: E402
 from lib.pftable import PfError, PfTable, valid_table  # noqa: E402
 from lib.state import State  # noqa: E402
 from lib.version import VERSION  # noqa: E402
 
 MAX_TEXT = 256   # longueur maximale d'un texte d'erreur exposé
 PF_BACKEND_FIELDS = ("pf_backend", "pf_backend_mode", "pf_backend_reason")
+
+# Journal silencieux : les avertissements de calcul (règles refusées,
+# troncature) appartiennent au démon, pas à la sortie JSON de l'état.
+_quiet = logging.getLogger("appalias.status")
+_quiet.addHandler(logging.NullHandler())
+_quiet.propagate = False
 
 
 def daemon_running(pidfile=cfgmod.PIDFILE):
@@ -163,6 +182,25 @@ def asn_summary(cfg, cache):
     }
 
 
+def discovery_summary(cfg, state, now=None, labels_path=proactive.LABELS_PATH,
+                      hints_path=proactive.HINTS_PATH):
+    """(résumé « discovery », {table: noms sondés}) d'après la config et l'état."""
+    now = time.time() if now is None else now
+    labels = proactive.load_labels(labels_path, logger=_quiet)
+    wildcards = state.active_wildcards(now)
+    tgts = {}
+    if cfg.proactive_enabled:
+        platforms = shared.load(extra=cfg.shared_platforms_extra)
+        matcher = Matcher({a.table: a.domains for a in cfg.apps if a.enabled},
+                          logger=_quiet, platforms=platforms)
+        tgts = proactive.targets(cfg, matcher, platforms, logger=_quiet, labels=labels,
+                                 hints=proactive.load_hints(hints_path, logger=_quiet),
+                                 seen=state.names, wildcards=wildcards, report={})
+    summary = {"deep": bool(cfg.proactive_deep), "labels": len(labels),
+               "targets": proactive.count_names(tgts), "wildcards": wildcards}
+    return summary, proactive.names_by_table(tgts)
+
+
 def count_families(entries):
     v4 = v6 = 0
     for entry in entries:
@@ -204,6 +242,7 @@ def status(config_path, state_path, pf, child_pidfile=cfgmod.CHILD_PIDFILE,
     verify_daemon_fields(out["latency"], child)
     asn_cache = asn.load_cache(asn_cache_path)
     out["asn"] = asn_summary(cfg, asn_cache)
+    out["discovery"], probe_names = discovery_summary(cfg, state)
     for app in cfg.apps:
         item = {
             "uuid": app.uuid,
@@ -215,6 +254,8 @@ def status(config_path, state_path, pf, child_pidfile=cfgmod.CHILD_PIDFILE,
             "last_error": state.last_error.get(app.table),
             "asn_prefixes": (len(asn.prefixes_for(asn.app_asns(app), asn_cache))
                              if cfg.asn_enabled else 0),
+            "probe_names": probe_names.get(app.table, 0),
+            "seen_names": state.names_count(app.table),
         }
         try:
             item["v4"], item["v6"] = count_families(pf.show(app.table))

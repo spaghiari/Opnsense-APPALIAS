@@ -1,8 +1,8 @@
 {
   "status": "running",
   "pid": 4821,
-  "version": "0.9",
-  "installed_version": "0.9",
+  "version": "0.10",
+  "installed_version": "0.10",
   "restart_needed": false,
   "error": null,
   "apps": {
@@ -13,6 +13,8 @@
       "v4": 18,
       "v6": 6,
       "asn_prefixes": 42,
+      "probe_names": 61,
+      "seen_names": 14,
       "last_hit": 1792300000.0,
       "last_error": null
     },
@@ -22,6 +24,8 @@
       "enabled": true,
       "v4": 3,
       "v6": 0,
+      "probe_names": 24,
+      "seen_names": 2,
       "last_hit": 1792290000.0,
       "last_error": null
     },
@@ -31,9 +35,17 @@
       "enabled": false,
       "v4": 0,
       "v6": 0,
+      "probe_names": 0,
+      "seen_names": 0,
       "last_hit": null,
       "last_error": null
     }
+  },
+  "discovery": {
+    "deep": true,
+    "labels": 90,
+    "targets": 85,
+    "wildcards": ["example-cdn.net"]
   },
   "latency": {
     "window": 256,
@@ -68,6 +80,17 @@
     },
     "daemon": {
       "pf_backend": "ioctl"
+    },
+    "proactive": {
+      "sent": 520,
+      "ok": 410,
+      "empty": 80,
+      "fail": 30,
+      "added": 133
+    },
+    "discovery": {
+      "targets": 85,
+      "seeded": 47
     },
     "asn": {
       "tables": 1,

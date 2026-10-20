@@ -1,0 +1,31 @@
+START_RRSET_CACHE
+;rrset 3600 1 0 8 3
+www.example.com.	3600	IN	A	93.184.216.34
+;rrset 3600 1 0 8 3
+www.example.com.	3600	IN	AAAA	2606:2800:220:1:248:1893:25c8:1946
+;rrset 300 1 0 8 3
+CDN.Example.NET.	300	IN	A	192.0.2.10
+;rrset 120 2 0 8 3
+api.example.org.	120	IN	A	198.51.100.7
+api.example.org.	120	IN	A	198.51.100.8
+;rrset 600 1 0 8 3
+alias.example.org.	600	IN	CNAME	api.example.org.
+;rrset 86400 1 0 8 3
+example.org.	86400	IN	NS	ns1.example.org.
+;rrset 50 1 0 8 3
+broken.example.org.	50	IN	A	999.1.1.1
+this line is not a record
+;rrset 10 1 0 8 3
+neg.example.org.	-5	IN	A	203.0.113.5
+;rrset 900 1 0 8 3
+V6.Example.COM.	900	IN	AAAA	2001:DB8::1
+;rrset 30 1 0 8 3
+ch.example.org.	30	CH	A	203.0.113.9
+END_RRSET_CACHE
+START_MSG_CACHE
+msg www.example.com. IN A 33152 1 3600 0 1 0 0 0
+www.example.com.	3600	IN	A	93.184.216.34
+msg only.msg.example. IN A 33152 1 3600 0 1 0 0 0
+only.msg.example.	3600	IN	A	192.0.2.99
+END_MSG_CACHE
+EOF

@@ -1,6 +1,6 @@
 <model>
     <mount>//OPNsense/appalias</mount>
-    <version>0.9.0</version>
+    <version>0.10.0</version>
     <description>AppAlias: one External pf alias per application, filled by the appaliasd DNS relay</description>
     <items>
         <general>
@@ -136,6 +136,14 @@
                 <Default>1</Default>
                 <Required>Y</Required>
             </proactive_enabled>
+            <proactive_deep type="BooleanField">
+                <Default>1</Default>
+                <Required>Y</Required>
+            </proactive_deep>
+            <unbound_cache_seed type="BooleanField">
+                <Default>1</Default>
+                <Required>Y</Required>
+            </unbound_cache_seed>
             <proactive_interval_min type="IntegerField">
                 <Default>300</Default>
                 <Required>Y</Required>

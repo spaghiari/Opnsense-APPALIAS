@@ -1,0 +1,109 @@
+# Dictionnaire de la découverte profonde (os-appalias, lib/proactive.py).
+#
+# Un label par ligne (plusieurs séparés par des espaces tolérés), « # » =
+# commentaire. Pour chaque règle « domain:x » d'une application activée, le
+# démon sonde label.x pour chaque label ci-dessous (option proactive_deep),
+# sauf si x est un joker DNS (tout sous-domaine résout). 128 labels au plus ;
+# un label invalide est ignoré.
+
+# web et applications
+www
+api
+api2
+app
+apps
+m
+mobile
+web
+portal
+
+# contenus et diffusion
+cdn
+cdn1
+cdn2
+cdn3
+static
+assets
+img
+images
+media
+video
+videos
+live
+stream
+streaming
+edge
+content
+contentproxy
+proxy
+relay
+
+# temps réel, messagerie, appels
+chat
+ws
+wss
+push
+gateway
+gw
+turn
+stun
+voip
+sfu
+rtc
+call
+calls
+voice
+mail
+
+# comptes et authentification
+auth
+login
+accounts
+account
+oauth
+id
+sso
+
+# fichiers, synchronisation, mises à jour
+storage
+upload
+uploads
+download
+downloads
+dl
+updates
+update
+sync
+backup
+files
+drive
+docs
+
+# services techniques
+status
+telemetry
+metrics
+analytics
+events
+config
+discovery
+directory
+
+# commerce et assistance
+play
+store
+shop
+pay
+payments
+checkout
+help
+support
+
+# développement et préproduction
+developer
+developers
+dev
+beta
+canary
+sandbox
+test
